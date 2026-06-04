@@ -83,7 +83,7 @@ class Dashboard extends Component
         ];
 
         // Hourly activity
-        $hourly = CdrRecord::selectRaw("CAST(SUBSTR(hour, 1, 2) AS INTEGER) as h, COUNT(*) as cnt")
+        $hourly = CdrRecord::selectRaw("CAST(SUBSTR(hour, 1, 2) AS UNSIGNED) as h, COUNT(*) as cnt")
             ->whereNotNull('hour')
             ->groupBy('h')
             ->orderBy('h')
