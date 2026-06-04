@@ -25,16 +25,36 @@ class ReportController extends Controller
             'imeis'       => CdrRecord::whereNotNull('imei_a')->distinct('imei_a')->count('imei_a'),
         ];
 
-        $topContacts = CdrRecord::selectRaw('number_b, COUNT(*) as calls, SUM(duration) as total_duration')
+        // Top contactos: todos los números de voz que aparecen como number_b,
+        // usando el mismo criterio del módulo de red (ambas columnas, sin duplicar el objetivo).
+        $targetNumbers = \DB::table('cdr_records')
+            ->selectRaw('source_file, number_a, COUNT(*) as cnt')
+            ->whereNotNull('number_a')->whereNotNull('source_file')
+            ->groupBy('source_file', 'number_a')
+            ->get()->groupBy('source_file')
+            ->map(fn($g) => $g->sortByDesc('cnt')->first()->number_a)
+            ->values()->unique()->filter()->toArray();
+
+        $topContacts = CdrRecord::selectRaw('number_b as phone, COUNT(*) as calls, SUM(duration) as total_duration')
             ->whereNotNull('number_b')
+            ->when(!empty($targetNumbers), fn($q) => $q->whereNotIn('number_b', $targetNumbers))
             ->groupBy('number_b')
             ->orderByDesc('calls')
             ->limit(20)
             ->get();
 
-        $enrichedContacts = PhoneContact::whereNotNull('name')
-            ->orWhereNotNull('alias')
-            ->orWhereNotNull('notes')
+        // Only contacts whose number appears in the current CDR dataset
+        $cdrNumbers = CdrRecord::selectRaw('number_a as phone')->whereNotNull('number_a')
+            ->union(CdrRecord::selectRaw('number_b as phone')->whereNotNull('number_b'))
+            ->pluck('phone')
+            ->unique();
+
+        $enrichedContacts = PhoneContact::whereIn('phone_number', $cdrNumbers)
+            ->where(function ($q) {
+                $q->whereNotNull('name')
+                  ->orWhereNotNull('alias')
+                  ->orWhereNotNull('notes');
+            })
             ->orderBy('name')
             ->get();
 
@@ -71,20 +91,31 @@ class ReportController extends Controller
             ->limit(30)
             ->get();
 
-        // Network graph snapshot (saved from the network view)
-        $networkSnapshot     = \Storage::disk('public')->exists('snapshots/network.png')
+        // Network graph snapshot
+        $networkSnapshot = \Storage::disk('public')->exists('snapshots/network.png')
             ? asset('storage/snapshots/network.png')
             : null;
-        // Absolute path for DomPDF (isRemoteEnabled: false needs a local file)
-        $networkSnapshotPath = \Storage::disk('public')->exists('snapshots/network.png')
-            ? \Storage::disk('public')->path('snapshots/network.png')
-            : null;
+        $networkSnapshotPath = null;
+        if (\Storage::disk('public')->exists('snapshots/network.png')) {
+            $raw = \Storage::disk('public')->get('snapshots/network.png');
+            $networkSnapshotPath = 'data:image/png;base64,' . base64_encode($raw);
+        }
+
+        // Map snapshots (3 types)
+        $mapSnapshots = [];
+        foreach (['map_data', 'map_voice', 'map_pernocta'] as $type) {
+            if (\Storage::disk('public')->exists("snapshots/{$type}.png")) {
+                $raw = \Storage::disk('public')->get("snapshots/{$type}.png");
+                $mapSnapshots[$type] = 'data:image/png;base64,' . base64_encode($raw);
+            }
+        }
 
         return compact(
             'targetNumber', 'stats', 'topContacts',
             'enrichedContacts', 'topVoiceCalls', 'imeiList',
             'pernoctaAntenna', 'nocturnalVoice',
-            'networkSnapshot', 'networkSnapshotPath'
+            'networkSnapshot', 'networkSnapshotPath',
+            'mapSnapshots'
         );
     }
 

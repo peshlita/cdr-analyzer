@@ -161,11 +161,11 @@
             <tbody class="divide-y divide-slate-700/50">
                 @foreach($topContacts as $i => $contact)
                 @php
-                    $pc = \App\Models\PhoneContact::where('phone_number', $contact->number_b)->first();
+                    $pc = \App\Models\PhoneContact::where('phone_number', $contact->phone)->first();
                 @endphp
                 <tr class="hover:bg-slate-700/20 transition-colors">
                     <td class="px-4 py-3 text-slate-500 text-xs">{{ $i+1 }}</td>
-                    <td class="px-4 py-3 font-mono text-slate-200">{{ $contact->number_b }}</td>
+                    <td class="px-4 py-3 font-mono text-slate-200">{{ $contact->phone }}</td>
                     <td class="px-4 py-3">
                         @if($pc?->name)
                             <span class="text-white">{{ $pc->name }}</span>

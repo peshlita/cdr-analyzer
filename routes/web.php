@@ -23,6 +23,7 @@ Route::post('/api/network-snapshot', [NetworkController::class, 'saveSnapshot'])
 // Map
 Route::get('/map', [MapController::class, 'index'])->name('map');
 Route::get('/api/map-data', [MapController::class, 'data'])->name('api.map');
+Route::post('/api/map-snapshot', [MapController::class, 'saveSnapshot'])->name('api.map.snapshot');
 
 // Contacts
 Route::get('/contacts', ContactManager::class)->name('contacts');

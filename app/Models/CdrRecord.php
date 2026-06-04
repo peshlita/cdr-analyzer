@@ -9,7 +9,7 @@ class CdrRecord extends Model
     protected $fillable = [
         'number_a', 'lat_a', 'lon_a', 'azimuth_a', 'imei_a', 'imsi_a',
         'number_b', 'lat_b', 'lon_b', 'azimuth_b', 'imei_b', 'imsi_b',
-        'type', 'direction', 'duration', 'date', 'hour',
+        'type', 'direction', 'duration', 'date', 'hour', 'source_file',
     ];
 
     protected $casts = [

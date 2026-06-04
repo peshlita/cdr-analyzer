@@ -17,6 +17,28 @@ class AnalysisController extends Controller
             return view('analysis.index', ['empty' => true, 'targetNumber' => null]);
         }
 
+        // Números objetivo: el number_a más frecuente por sábana cargada
+        $targetNumbers = \DB::table('cdr_records')
+            ->selectRaw('source_file, number_a, COUNT(*) as cnt')
+            ->whereNotNull('number_a')->whereNotNull('source_file')
+            ->groupBy('source_file', 'number_a')
+            ->get()
+            ->groupBy('source_file')
+            ->map(fn($g) => $g->sortByDesc('cnt')->first()->number_a)
+            ->values()->unique()->filter()->toArray();
+
+        if (empty($targetNumbers) && $targetNumber) {
+            $targetNumbers = [$targetNumber];
+        }
+
+        // Identificar el "otro" número de forma correcta para ambos formatos:
+        //   Formato A: number_a alterna (es caller en salientes, es "otro" en entrantes)
+        //   Formato B: number_a es SIEMPRE el abonado analizado; "otro" es siempre number_b.
+        // Regla: si number_a es un número objetivo, el otro es number_b; si no, el otro es number_a.
+        $resolveOther = function ($numA, $numB) use ($targetNumbers): ?string {
+            return in_array($numA, $targetNumbers) ? $numB : $numA;
+        };
+
         // Load all voice records with number_b
         $voiceRecords = CdrRecord::where('type', 'voice')
             ->whereNotNull('number_b')
@@ -25,7 +47,7 @@ class AnalysisController extends Controller
         // Build interaction map: other_number => {out, in, duration}
         $map = [];
         foreach ($voiceRecords as $r) {
-            $other = ($r->direction === 'Outgoing') ? $r->number_b : $r->number_a;
+            $other = $resolveOther($r->number_a, $r->number_b);
             if (!$other) continue;
             if (!isset($map[$other])) $map[$other] = ['out' => 0, 'in' => 0, 'duration' => 0];
             if ($r->direction === 'Outgoing') $map[$other]['out']++;
@@ -64,7 +86,7 @@ class AnalysisController extends Controller
             if (!$r->hour) continue;
             $h = (int) substr($r->hour, 0, 2);
             if ($h >= 7 && $h < 23) continue; // daytime, skip
-            $other = ($r->direction === 'Outgoing') ? $r->number_b : $r->number_a;
+            $other = $resolveOther($r->number_a, $r->number_b);
             if (!$other) continue;
             if (!isset($nocturnalMap[$other])) $nocturnalMap[$other] = ['count' => 0, 'duration' => 0];
             $nocturnalMap[$other]['count']++;

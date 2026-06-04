@@ -31,7 +31,24 @@ class NetworkController extends Controller
 
     public function data(Request $request)
     {
-        $targetNumber = CdrRecord::getTargetNumber();
+        // ── Números objetivo: uno por sábana cargada (número_a más frecuente) ─
+        $targetNumbers = \DB::table('cdr_records')
+            ->selectRaw('source_file, number_a, COUNT(*) as cnt')
+            ->whereNotNull('number_a')
+            ->whereNotNull('source_file')
+            ->groupBy('source_file', 'number_a')
+            ->get()
+            ->groupBy('source_file')
+            ->map(fn($g) => $g->sortByDesc('cnt')->first()->number_a)
+            ->values()
+            ->unique()
+            ->filter()
+            ->toArray();
+
+        if (empty($targetNumbers)) {
+            $single = CdrRecord::getTargetNumber();
+            $targetNumbers = $single ? [$single] : [];
+        }
 
         // Base query: only voice records with both numbers
         $base = CdrRecord::where('type', 'voice')
@@ -45,26 +62,67 @@ class NetworkController extends Controller
             $base->whereDate('date', '<=', $request->date_to);
         }
 
-        // ── Number list (always full, unfiltered by numbers[]) ───────────────
-        $nlQuery = CdrRecord::where('type', 'voice')->whereNotNull('number_b');
-        if ($request->filled('date_from')) $nlQuery->whereDate('date', '>=', $request->date_from);
-        if ($request->filled('date_to'))   $nlQuery->whereDate('date', '<=', $request->date_to);
+        // ── Number list: TODOS los teléfonos que aparecen en registros de voz ──
+        // Se cuenta el número de veces que aparece en cualquier columna
+        // (number_a O number_b) y se ordena por total combinado desc.
+        $dateBindings = [];
+        $dateWhere    = '';
+        if ($request->filled('date_from')) {
+            $dateWhere    .= ' AND date >= ?';
+            $dateBindings[] = $request->date_from;
+        }
+        if ($request->filled('date_to')) {
+            $dateWhere    .= ' AND date <= ?';
+            $dateBindings[] = $request->date_to;
+        }
 
-        $numFreqs   = $nlQuery
-            ->selectRaw('number_b as phone, COUNT(*) as cnt')
-            ->groupBy('number_b')
-            ->orderByDesc('cnt')
-            ->get();
+        // Los bindings se repiten para las dos mitades del UNION ALL
+        $numFreqs = collect(\DB::select("
+            SELECT phone, SUM(cnt) AS cnt
+            FROM (
+                SELECT number_a AS phone, COUNT(*) AS cnt
+                  FROM cdr_records
+                 WHERE type = 'voice'
+                   AND number_a IS NOT NULL
+                   AND number_b IS NOT NULL
+                   {$dateWhere}
+                 GROUP BY number_a
+
+                UNION ALL
+
+                SELECT number_b AS phone, COUNT(*) AS cnt
+                  FROM cdr_records
+                 WHERE type = 'voice'
+                   AND number_a IS NOT NULL
+                   AND number_b IS NOT NULL
+                   {$dateWhere}
+                 GROUP BY number_b
+            ) t
+            GROUP BY phone
+            ORDER BY cnt DESC
+        ", array_merge($dateBindings, $dateBindings)));
 
         $nlPhones   = $numFreqs->pluck('phone');
         $nlContacts = PhoneContact::whereIn('phone_number', $nlPhones)->get()->keyBy('phone_number');
 
+        // Teléfonos que aparecen en más de una sábana (cruce entre sábanas)
+        $crossPhones = collect(\DB::select("
+            SELECT phone FROM (
+                SELECT number_a AS phone, source_file FROM cdr_records WHERE number_a IS NOT NULL AND source_file IS NOT NULL
+                UNION
+                SELECT number_b AS phone, source_file FROM cdr_records WHERE number_b IS NOT NULL AND source_file IS NOT NULL
+            ) t
+            GROUP BY phone HAVING COUNT(DISTINCT source_file) > 1
+        "))->pluck('phone')->flip();
+
         $numberList = $numFreqs->map(fn($r) => [
-            'phone' => $r->phone,
-            'label' => $nlContacts->get($r->phone)?->name
-                    ?? $nlContacts->get($r->phone)?->alias
-                    ?? $r->phone,
-            'calls' => (int) $r->cnt,
+            'phone'    => $r->phone,
+            'label'    => $nlContacts->get($r->phone)?->name
+                       ?? $nlContacts->get($r->phone)?->alias
+                       ?? $r->phone,
+            'calls'    => (int) $r->cnt,
+            'isTarget' => in_array($r->phone, $targetNumbers),
+            'crossRef' => isset($crossPhones[$r->phone]),
         ])->values()->toArray();
 
         // ── Apply numbers[] subgraph filter ──────────────────────────────────
@@ -79,22 +137,69 @@ class NetworkController extends Controller
             ->groupBy('number_a', 'number_b', 'direction')
             ->get();
 
-        // ── Normalize pairs ───────────────────────────────────────────────────
-        // Outgoing  → target called other   (⟶)
-        // Incoming  → other called target   (⟵)
+        // ── Consolidar pares con clave canónica min|max ───────────────────────
+        //
+        // Con múltiples sábanas el mismo par A↔B puede aparecer en la BD con
+        // roles invertidos: (number_a=A, number_b=B) y (number_a=B, number_b=A).
+        // Usando siempre la clave canónica garantizamos máximo 2 aristas por par,
+        // sin importar cuántas sábanas estén cargadas.
+        //
+        // Dirección canónica (relativa al nodo "source" = número menor):
+        //   outgoing : source llamó a target
+        //   incoming : target llamó a source
+        //
+        // Cómo se determina la dirección canónica según el registro:
+        //   number_a=lo, direction=Outgoing  → lo llamó a hi  → outgoing
+        //   number_a=lo, direction=Incoming  → hi llamó a lo  → incoming
+        //   number_a=hi, direction=Outgoing  → hi llamó a lo  → incoming
+        //   number_a=hi, direction=Incoming  → lo llamó a hi  → outgoing
         $pairs = [];
         foreach ($records as $r) {
-            $key = $r->number_a . '|' . $r->number_b;
+            if (!$r->number_a || !$r->number_b) continue;
+
+            // Determinar lo/hi (orden canónico)
+            [$lo, $hi] = strcmp($r->number_a, $r->number_b) <= 0
+                ? [$r->number_a, $r->number_b]
+                : [$r->number_b, $r->number_a];
+
+            $key = $lo . '|' . $hi;
             if (!isset($pairs[$key])) {
                 $pairs[$key] = [
-                    'source'   => $r->number_a,
-                    'target'   => $r->number_b,
+                    'source'   => $lo,
+                    'target'   => $hi,
                     'outgoing' => 0,
                     'incoming' => 0,
                     'duration' => 0,
                 ];
             }
-            if ($r->direction === 'Outgoing') {
+
+            // Traducir dirección del registro a dirección canónica.
+            //
+            // Hay dos convenciones de dirección según el formato:
+            //
+            // Formato B: number_a es SIEMPRE el abonado analizado (target).
+            //   Outgoing → number_a llamó → caller = number_a
+            //   Incoming → number_b llamó → caller = number_b
+            //
+            // Formato A: number_a ALTERNA de rol:
+            //   Outgoing → number_a = target (caller), number_b = otro
+            //   Incoming → number_a = otro (caller), number_b = target  ← CLAVE
+            //
+            // En registros Incoming de Formato A, number_a es el que LLAMA (el otro),
+            // por lo que la dirección canónica se determina igual que para Outgoing:
+            // "caller = number_a, ¿es number_a el lo?" → isCanonicalOutgoing = aIsLo.
+            //
+            // Regla: si number_a ES un target → Formato B → Incoming invierte caller
+            //        si number_a NO es target → Formato A Incoming → caller = number_a
+            $aIsLo    = ($r->number_a === $lo);
+            $isTargetA = in_array($r->number_a, $targetNumbers);
+            $isCanonicalOutgoing = match($r->direction) {
+                'Outgoing' => $aIsLo,
+                'Incoming' => $isTargetA ? !$aIsLo : $aIsLo,
+                default    => $isTargetA ? !$aIsLo : $aIsLo,
+            };
+
+            if ($isCanonicalOutgoing) {
                 $pairs[$key]['outgoing'] += $r->calls;
             } else {
                 $pairs[$key]['incoming'] += $r->calls;
@@ -112,6 +217,19 @@ class NetworkController extends Controller
 
         $contacts = PhoneContact::whereIn('phone_number', $allNumbers)->get()->keyBy('phone_number');
 
+        // ── Cross-reference: which source files each number appears in ─────────
+        $sourcesMap = \DB::table('cdr_records')
+            ->select('number_a as phone', 'source_file')
+            ->whereNotNull('source_file')->whereNotNull('number_a')
+            ->union(
+                \DB::table('cdr_records')
+                    ->select('number_b as phone', 'source_file')
+                    ->whereNotNull('number_b')->whereNotNull('source_file')
+            )
+            ->distinct()->get()
+            ->groupBy('phone')
+            ->map(fn($g) => $g->pluck('source_file')->unique()->values()->toArray());
+
         $freq = [];
         foreach ($pairs as $p) {
             $total = $p['outgoing'] + $p['incoming'];
@@ -123,9 +241,12 @@ class NetworkController extends Controller
         $nodes = [];
         foreach ($allNumbers as $num) {
             $contact  = $contacts->get($num);
-            $isTarget = $num === $targetNumber;
+            $isTarget = in_array($num, $targetNumbers);
             $f        = $freq[$num] ?? 1;
             $size     = 20 + round(($f / $maxFreq) * 40);
+
+            $sources  = $sourcesMap->get($num, []);
+            $crossRef = count($sources) > 1;
 
             $nodes[] = [
                 'data' => [
@@ -139,11 +260,20 @@ class NetworkController extends Controller
                     'calls'    => $f,
                     'isTarget' => $isTarget,
                     'size'     => $size,
+                    'sources'  => $sources,
+                    'crossRef' => $crossRef,
                 ],
             ];
         }
 
-        // ── Edges — one edge per direction so parallel arrows are separate ────
+        // ── Edges ─────────────────────────────────────────────────────────────
+        // outgoing: source=lo → target=hi  (lo llamó a hi)
+        // incoming: source=hi → target=lo  (hi llamó a lo)
+        //
+        // Al invertir source/target en la arista entrante, ambas aristas van en
+        // sentidos físicamente opuestos dentro de Cytoscape. El motor de grafo
+        // las separa automáticamente con curvas en arco visibles, eliminando el
+        // colapso visual que ocurría cuando las dos compartían el mismo source y target.
         $edges = [];
         $ei    = 0;
         foreach ($pairs as $p) {
@@ -151,12 +281,12 @@ class NetworkController extends Controller
                 $edges[] = [
                     'data' => [
                         'id'      => 'e' . $ei++,
-                        'source'  => $p['source'],
-                        'target'  => $p['target'],
+                        'source'  => $p['source'],   // lo
+                        'target'  => $p['target'],   // hi
                         'dirType' => 'outgoing',
                         'calls'   => $p['outgoing'],
                         'duration'=> $p['duration'],
-                        'label'   => '⟶ ' . $p['outgoing'],
+                        'label'   => (string) $p['outgoing'],
                         'color'   => '#10b981',
                         'width'   => max(1, min(8, round($p['outgoing'] / 2))),
                     ],
@@ -166,12 +296,12 @@ class NetworkController extends Controller
                 $edges[] = [
                     'data' => [
                         'id'      => 'e' . $ei++,
-                        'source'  => $p['source'],
-                        'target'  => $p['target'],
+                        'source'  => $p['target'],   // hi → invertido
+                        'target'  => $p['source'],   // lo → invertido
                         'dirType' => 'incoming',
                         'calls'   => $p['incoming'],
                         'duration'=> $p['duration'],
-                        'label'   => '⟵ ' . $p['incoming'],
+                        'label'   => (string) $p['incoming'],
                         'color'   => '#ef4444',
                         'width'   => max(1, min(8, round($p['incoming'] / 2))),
                     ],
@@ -180,10 +310,10 @@ class NetworkController extends Controller
         }
 
         return response()->json([
-            'nodes'        => $nodes,
-            'edges'        => $edges,
-            'targetNumber' => $targetNumber,
-            'numberList'   => $numberList,
+            'nodes'         => $nodes,
+            'edges'         => $edges,
+            'targetNumbers' => $targetNumbers,
+            'numberList'    => $numberList,
         ]);
     }
 }

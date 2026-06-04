@@ -50,7 +50,9 @@
             </div>
             <div>
                 <p class="font-bold text-white text-sm leading-none">CDR Analyzer</p>
-                <p class="text-xs text-slate-400 mt-0.5">Análisis Forense</p>
+                <p class="text-xs text-slate-500 mt-0.5">(Call Detail Records)</p>
+
+                <p class="font-bold text-slate-300 text-md">Análisis Forense</p>
             </div>
         </div>
 

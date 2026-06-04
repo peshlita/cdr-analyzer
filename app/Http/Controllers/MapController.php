@@ -10,10 +10,16 @@ class MapController extends Controller
 {
     public function index()
     {
-        $numbers = CdrRecord::selectRaw('DISTINCT number_a as phone')
-            ->whereNotNull('number_a')
-            ->pluck('phone')
-            ->sort()
+        // Solo mostrar los números objetivo (uno por sábana cargada),
+        // usando el mismo criterio que los demás módulos.
+        $targetsByFile = \DB::table('cdr_records')
+            ->selectRaw('source_file, number_a, COUNT(*) as cnt')
+            ->whereNotNull('number_a')->whereNotNull('source_file')
+            ->groupBy('source_file', 'number_a')
+            ->get()
+            ->groupBy('source_file')
+            ->map(fn($g) => $g->sortByDesc('cnt')->first())
+            ->map(fn($r) => ['phone' => $r->number_a, 'source_file' => $r->source_file])
             ->values();
 
         $dateRange = [
@@ -21,7 +27,25 @@ class MapController extends Controller
             'max' => CdrRecord::whereNotNull('date')->max('date'),
         ];
 
-        return view('map.index', compact('numbers', 'dateRange'));
+        return view('map.index', compact('targetsByFile', 'dateRange'));
+    }
+
+    public function saveSnapshot(Request $request)
+    {
+        $dataUri = $request->input('image', '');
+        $type    = $request->input('type', '');
+
+        $allowed = ['map_data', 'map_voice', 'map_pernocta'];
+
+        if (!in_array($type, $allowed) || !str_starts_with($dataUri, 'data:image/png;base64,')) {
+            return response()->json(['success' => false, 'error' => 'Invalid request'], 422);
+        }
+
+        $png = base64_decode(str_replace('data:image/png;base64,', '', $dataUri));
+        \Storage::disk('public')->makeDirectory('snapshots');
+        \Storage::disk('public')->put("snapshots/{$type}.png", $png);
+
+        return response()->json(['success' => true]);
     }
 
     public function data(Request $request)
@@ -29,25 +53,53 @@ class MapController extends Controller
         $contacts = PhoneContact::all()->keyBy('phone_number');
         $targetNumber = CdrRecord::getTargetNumber();
 
+        // Resolución de sábana por número objetivo (mismo criterio que los demás módulos)
+        $sourceFileForNumber = null;
+        if ($request->filled('number')) {
+            $sourceFileForNumber = \DB::table('cdr_records')
+                ->where('number_a', $request->number)
+                ->whereNotNull('source_file')
+                ->value('source_file');
+        }
+
         // Base filter closure
-        $applyFilters = function ($q) use ($request) {
-            if ($request->filled('number')) $q->where('number_a', $request->number);
-            if ($request->filled('date_from')) $q->whereDate('date', '>=', $request->date_from);
-            if ($request->filled('date_to'))   $q->whereDate('date', '<=', $request->date_to);
+        $applyFilters = function ($q) use ($request, $sourceFileForNumber) {
+            if ($sourceFileForNumber) {
+                // Filtrar por sábana completa (no solo number_a = target,
+                // para incluir sesiones de datos y todos los registros GPS del archivo)
+                $q->where('source_file', $sourceFileForNumber);
+            }
+            if ($request->filled('date_from')) {
+                $q->where(function ($inner) use ($request) {
+                    $inner->whereDate('date', '>=', $request->date_from)
+                          ->orWhereNull('date');
+                });
+            }
+            if ($request->filled('date_to')) {
+                $q->where(function ($inner) use ($request) {
+                    $inner->whereDate('date', '<=', $request->date_to)
+                          ->orWhereNull('date');
+                });
+            }
             return $q;
         };
 
         // 1. Movement points from DATA records (lat_a/lon_a valid)
+        // Solo traemos las columnas necesarias — reduce la memoria y el tiempo de serialización
         $dataQ = CdrRecord::where('type', 'data')
             ->whereNotNull('lat_a')->whereNotNull('lon_a')
             ->where('lat_a', '!=', 0)->where('lon_a', '!=', 0);
-        $dataRecords = $applyFilters($dataQ)->orderBy('date')->orderBy('hour')->get();
+        $dataRecords = $applyFilters($dataQ)
+            ->orderBy('date')->orderBy('hour')
+            ->get(['lat_a','lon_a','number_a','date','hour','azimuth_a']);
 
         // 2. Voice call markers (lat_a when available)
         $voiceQ = CdrRecord::where('type', 'voice')
             ->whereNotNull('lat_a')->whereNotNull('lon_a')
             ->where('lat_a', '!=', 0)->where('lon_a', '!=', 0);
-        $voiceRecords = $applyFilters($voiceQ)->orderBy('date')->orderBy('hour')->get();
+        $voiceRecords = $applyFilters($voiceQ)
+            ->orderBy('date')->orderBy('hour')
+            ->get(['lat_a','lon_a','number_a','number_b','date','hour','direction','duration','azimuth_a']);
 
         // 3. Pernocta antenna: data records 23:00-07:00, group by lat/lon, max duration
         $pernoctaQ = CdrRecord::where('type', 'data')
@@ -55,7 +107,7 @@ class MapController extends Controller
             ->where('lat_a', '!=', 0)->where('lon_a', '!=', 0)
             ->whereNotNull('hour')
             ->whereRaw("(hour >= '23:00:00' OR hour <= '07:00:00')");
-        if ($request->filled('number')) $pernoctaQ->where('number_a', $request->number);
+        if ($sourceFileForNumber) $pernoctaQ->where('source_file', $sourceFileForNumber);
 
         $pernoctaData = $pernoctaQ
             ->selectRaw('lat_a, lon_a, SUM(duration) as total_duration, COUNT(*) as sessions')
@@ -117,6 +169,7 @@ class MapController extends Controller
             'movementPath' => $movementPath,
             'pernocta'     => $pernocta,
             'targetNumber' => $targetNumber,
+            'totalMarkers' => $dataRecords->count() + $voiceRecords->count(),
         ]);
     }
 }

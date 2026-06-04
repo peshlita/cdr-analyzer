@@ -51,7 +51,7 @@
             </button>
 
             <div class="flex gap-2">
-                <button @click="resetLayout()"
+                <button @click="applyDirectionalLayout()"
                         class="flex-1 text-xs text-white py-1.5 rounded-lg transition-colors hover:opacity-90"
                         style="background-color:#3b82f6;">
                     <i class="fas fa-redo mr-1"></i> Reorganizar
@@ -120,19 +120,37 @@
             </p>
 
             <template x-for="item in filteredNums" :key="item.phone">
-                <label class="num-item flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-colors select-none">
+                <label class="num-item flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-colors select-none"
+                       :class="item.isTarget  ? 'bg-amber-900/10'  :
+                               item.crossRef  ? 'bg-purple-900/10' : ''">
                     <input type="checkbox"
                            :checked="isSelected(item.phone)"
                            @change="toggleNum(item.phone)"
                            class="rounded shrink-0"
                            style="accent-color:#3b82f6; background-color:#0f172a;">
+
+                    {{-- Icono de objetivo o cruce (solo para esos dos casos) --}}
+                    <template x-if="item.isTarget">
+                        <span title="Número objetivo" class="shrink-0 text-amber-400" style="font-size:11px;">
+                            <i class="fas fa-crosshairs"></i>
+                        </span>
+                    </template>
+                    <template x-if="!item.isTarget && item.crossRef">
+                        <span title="Cruce entre sábanas" class="shrink-0 text-purple-400" style="font-size:11px;">
+                            <i class="fas fa-link"></i>
+                        </span>
+                    </template>
+
                     <div class="flex-1 min-w-0">
-                        <p class="text-xs text-slate-200 truncate font-mono leading-tight"
+                        <p class="text-xs truncate font-mono leading-tight"
+                           :class="item.isTarget ? 'text-amber-300 font-semibold' :
+                                   item.crossRef ? 'text-purple-300'              : 'text-slate-200'"
                            x-text="item.label !== item.phone ? item.label : item.phone"></p>
                         <p x-show="item.label !== item.phone"
                            class="text-xs text-slate-500 font-mono truncate leading-tight"
                            x-text="item.phone"></p>
                     </div>
+
                     <span class="text-xs font-bold shrink-0 px-1.5 py-0.5 rounded min-w-6.5 text-center"
                           :class="item.calls >= highFreqThreshold
                               ? 'text-red-300 bg-red-900/40'
@@ -163,7 +181,13 @@
             </div>
             <div class="flex items-center gap-2">
                 <span class="w-3 h-3 rounded-full inline-block shrink-0" style="background:#f59e0b;"></span>
+                <i class="fas fa-crosshairs text-amber-400" style="font-size:10px;"></i>
                 Objetivo
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="w-3 h-3 rounded-full inline-block shrink-0" style="background:#a855f7; outline:2px dashed #c084fc; outline-offset:2px;"></span>
+                <i class="fas fa-link text-purple-400" style="font-size:10px;"></i>
+                Cruce entre sábanas
             </div>
         </div>
     </div>
@@ -188,6 +212,31 @@
                  style="background: linear-gradient(to right, #3b82f6, #10b981, #f59e0b, #ef4444);"></div>
             <div class="flex justify-between text-slate-500" style="width:128px;">
                 <span>Baja</span><span>Alta</span>
+            </div>
+        </div>
+
+        <!-- Zone labels (visible when directional layout is active) -->
+        <div x-show="directionalLayout" x-cloak
+             class="absolute inset-0 pointer-events-none z-10 flex" style="padding:12px;">
+            <div class="flex-1 flex flex-col items-start justify-start">
+                <span class="text-xs font-semibold px-2 py-1 rounded"
+                      style="background:rgba(16,185,129,0.15);color:#10b981;border:1px solid rgba(16,185,129,0.3);">
+                    ⟶ Salientes
+                </span>
+                <span class="text-xs text-slate-500 mt-1 ml-1">objetivo llamó</span>
+            </div>
+            <div class="flex-1 flex flex-col items-center justify-start">
+                <span class="text-xs font-semibold px-2 py-1 rounded"
+                      style="background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.3);">
+                    ⟶ ⟵ Bidireccionales
+                </span>
+            </div>
+            <div class="flex-1 flex flex-col items-end justify-start">
+                <span class="text-xs font-semibold px-2 py-1 rounded"
+                      style="background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid rgba(239,68,68,0.3);">
+                    ⟵ Entrantes
+                </span>
+                <span class="text-xs text-slate-500 mt-1 mr-1">le llamaron</span>
             </div>
         </div>
 
@@ -239,6 +288,14 @@
                         <p class="text-xs text-slate-500">Interacciones</p>
                         <p class="text-blue-400 font-bold text-xl" x-text="selectedNode.calls"></p>
                     </div>
+                    <template x-if="selectedNode.crossRef">
+                        <div class="rounded-lg px-3 py-2" style="background:rgba(168,85,247,0.12);border:1px solid rgba(168,85,247,0.4);">
+                            <p class="text-xs text-purple-400 font-semibold mb-1"><i class="fas fa-link mr-1"></i>Cruce entre sábanas</p>
+                            <template x-for="src in selectedNode.sources" :key="src">
+                                <p class="text-xs text-purple-300 font-mono" x-text="src"></p>
+                            </template>
+                        </div>
+                    </template>
                     <template x-if="selectedNode.notes">
                         <div>
                             <p class="text-xs text-slate-500">Notas</p>
@@ -266,13 +323,14 @@
 
     window.networkApp = function () {
         return {
-            loading:         true,
-            selectedNode:    null,
-            cy:              null,
-            colorByFreq:     false,
-            snapshotSaving:  false,
-            snapshotSaved:   false,
-            filters:         { date_from: '', date_to: '' },
+            loading:           true,
+            selectedNode:      null,
+            cy:                null,
+            colorByFreq:       false,
+            directionalLayout: false,
+            snapshotSaving:    false,
+            snapshotSaved:     false,
+            filters:           { date_from: '', date_to: '' },
 
             // Number filter
             numberList: [],   // [{phone, label, calls}] sorted desc by calls
@@ -316,8 +374,9 @@
 
             // ── Load / build ──────────────────────────────────────────
             async loadGraph() {
-                this.loading      = true;
-                this.selectedNode = null;
+                this.loading           = true;
+                this.selectedNode      = null;
+                this.directionalLayout = false;
 
                 const params = new URLSearchParams();
                 if (this.filters.date_from) params.set('date_from', this.filters.date_from);
@@ -352,13 +411,18 @@
                             selector: 'node',
                             style: {
                                 'background-color':   '#3b82f6',
-                                'label':              'data(label)',
-                                'color':              '#e2e8f0',
-                                'font-size':          '9px',
-                                'text-valign':        'bottom',
-                                'text-margin-y':      '4px',
-                                'text-outline-color': '#0f172a',
-                                'text-outline-width': '2px',
+                                'label':                    'data(label)',
+                                'color':                    '#e2e8f0',
+                                'font-size':                '9px',
+                                'text-valign':              'bottom',
+                                'text-halign':              'center',
+                                'text-margin-y':            '5px',
+                                'text-outline-color':       '#0f172a',
+                                'text-outline-width':       '3px',
+                                'text-background-color':    '#0f172a',
+                                'text-background-opacity':  0.75,
+                                'text-background-padding':  '2px',
+                                'text-background-shape':    'roundrectangle',
                                 'width':              'data(size)',
                                 'height':             'data(size)',
                                 'border-width':       2,
@@ -375,37 +439,50 @@
                             }
                         },
                         {
+                            selector: 'node[?crossRef]',
+                            style: {
+                                'background-color': '#a855f7',
+                                'border-color':     '#c084fc',
+                                'border-width':     3,
+                                'border-style':     'dashed',
+                            }
+                        },
+                        {
                             selector: 'edge',
                             style: {
-                                'width':                    'data(width)',
-                                'line-color':               'data(color)',
-                                // bezier auto-curves parallel edges between same pair
-                                'curve-style':              'bezier',
-                                'control-point-step-size':  40,
-                                'opacity':                  0.8,
-                                'label':                    'data(label)',
-                                'font-size':                '9px',
-                                'color':                    '#94a3b8',
-                                'text-rotation':            'autorotate',
-                                'text-margin-y':            '-7px',
-                                'text-outline-color':       '#0f172a',
-                                'text-outline-width':       '2px',
+                                'width':                   'data(width)',
+                                'line-color':              'data(color)',
+                                // bezier con offset automático para pares paralelos
+                                'curve-style':             'bezier',
+                                'control-point-step-size': 60,
+                                'opacity':                 0.85,
+                                'label':                   'data(label)',
+                                'font-size':               '9px',
+                                'color':                   '#94a3b8',
+                                'text-rotation':           'autorotate',
+                                'text-margin-y':           '-7px',
+                                'text-outline-color':      '#0f172a',
+                                'text-outline-width':      '2px',
+                                'mid-target-arrow-shape':  'none',
+                                'mid-source-arrow-shape':  'none',
+                                // Todas las aristas usan target-arrow; la dirección
+                                // la da el source/target del edge, no el tipo de flecha
+                                'target-arrow-shape':      'triangle',
+                                'target-arrow-color':      'data(color)',
+                                'source-arrow-shape':      'none',
                             }
                         },
                         {
                             selector: "edge[dirType='outgoing']",
                             style: {
-                                'target-arrow-shape': 'triangle',
-                                'target-arrow-color': 'data(color)',
-                                'source-arrow-shape': 'none',
+                                // Hereda target-arrow del selector base; sin cambios extra
                             }
                         },
                         {
                             selector: "edge[dirType='incoming']",
                             style: {
-                                'source-arrow-shape': 'triangle',
-                                'source-arrow-color': 'data(color)',
-                                'target-arrow-shape': 'none',
+                                // source/target ya están invertidos desde el servidor;
+                                // el target-arrow apunta al callee correcto (lo)
                             }
                         },
                         {
@@ -458,6 +535,7 @@
                 if (this.colorByFreq) {
                     this.applyFreqColors();
                     this.applyConcentricLayout();
+                    this.directionalLayout = false;
                 } else {
                     this.resetNodeColors();
                     this.resetLayout();
@@ -469,7 +547,7 @@
                 const nodes = this.cy.nodes();
                 const maxC  = Math.max(...nodes.map(n => n.data('calls') || 1));
                 nodes.forEach(node => {
-                    if (node.data('isTarget')) return;
+                    if (node.data('isTarget') || node.data('crossRef')) return;
                     const t     = (node.data('calls') || 1) / maxC;
                     const color = this.freqToColor(t);
                     const s     = { 'border-color': color, 'border-width': 4 };
@@ -483,9 +561,11 @@
                 if (!this.cy) return;
                 this.cy.nodes().forEach(node => {
                     if (node.data('isTarget')) {
-                        node.style({ 'background-color': '#f59e0b', 'border-color': '#d97706', 'border-width': 4 });
+                        node.style({ 'background-color': '#f59e0b', 'border-color': '#d97706', 'border-width': 4, 'border-style': 'solid' });
+                    } else if (node.data('crossRef')) {
+                        node.style({ 'background-color': '#a855f7', 'border-color': '#c084fc', 'border-width': 3, 'border-style': 'dashed' });
                     } else {
-                        const s = { 'border-color': '#1e40af', 'border-width': 2 };
+                        const s = { 'border-color': '#1e40af', 'border-width': 2, 'border-style': 'solid' };
                         if (!node.data('image')) s['background-color'] = '#3b82f6';
                         node.style(s);
                     }
@@ -607,8 +687,178 @@
             },
 
             // ── Layout helpers ────────────────────────────────────────
+            applyDirectionalLayout() {
+                if (!this.cy) return;
+                this.directionalLayout = true;
+
+                const targetNodes = this.cy.nodes('[?isTarget]').filter(':visible');
+                const W   = this.cy.width();
+                const H   = this.cy.height();
+                const pad = 60;
+
+                if (!targetNodes.length) { this.resetLayout(); return; }
+
+                const positions = {};
+                const byFreq    = (a, b) => (b.data('calls') || 0) - (a.data('calls') || 0);
+
+                // ── Columna vertical centrada ──────────────────────────
+                const column = (nodes, x) => {
+                    if (!nodes.length) return;
+                    const step   = Math.max(50, (H - pad * 2) / (nodes.length + 1));
+                    const startY = (H - step * (nodes.length - 1)) / 2;
+                    nodes.forEach((n, i) => {
+                        positions[n.data('id')] = { x, y: startY + step * i };
+                    });
+                };
+
+                if (targetNodes.length === 1) {
+                    // ── Caso: 1 número objetivo ────────────────────────────────────
+                    const tNode   = targetNodes.first();
+                    const tId     = tNode.data('id');
+                    positions[tId] = { x: W / 2, y: H / 2 };
+
+                    const outOnly = [], inOnly = [], bidir = [], solo = [];
+
+                    this.cy.nodes(':visible').forEach(node => {
+                        if (node.data('isTarget')) return;
+                        const edges = node.edgesWith(tNode).filter(':visible');
+                        if (!edges.length) { solo.push(node); return; }
+
+                        let hasOut = false, hasIn = false;
+                        edges.forEach(edge => {
+                            // Cada arista tiene su dirección real en source→target:
+                            //   outgoing: source=lo → target=hi  (lo llamó)
+                            //   incoming: source=hi → target=lo  (hi llamó, invertido desde servidor)
+                            // El "caller" es siempre source y el "callee" siempre target.
+                            const caller = edge.data('source');
+                            const callee = edge.data('target');
+                            if (caller === tId) hasOut = true; // objetivo llamó al nodo
+                            if (callee === tId) hasIn  = true; // alguien llamó al objetivo
+                        });
+
+                        if (hasOut && hasIn) bidir.push(node);
+                        else if (hasOut)     outOnly.push(node);
+                        else if (hasIn)      inOnly.push(node);
+                        else                 bidir.push(node);
+                    });
+
+                    outOnly.sort(byFreq); inOnly.sort(byFreq);
+                    bidir.sort(byFreq);   solo.sort(byFreq);
+
+                    column(outOnly, pad + 70);
+                    column(inOnly,  W - pad - 70);
+
+                    const radius = Math.min(W, H) * 0.22;
+                    bidir.forEach((node, i) => {
+                        const angle = (2 * Math.PI * i) / Math.max(bidir.length, 1) - Math.PI / 2;
+                        positions[node.data('id')] = {
+                            x: W / 2 + radius * Math.cos(angle),
+                            y: H / 2 + radius * Math.sin(angle),
+                        };
+                    });
+
+                    solo.forEach((node, i) => {
+                        const cols = 5, cellW = (W - pad * 2) / cols;
+                        positions[node.data('id')] = {
+                            x: pad + cellW / 2 + (i % cols) * cellW,
+                            y: H - pad - Math.floor(i / cols) * 55,
+                        };
+                    });
+
+                } else {
+                    // ── Caso: N números objetivo (una por sábana) ──────────────────
+                    //
+                    // Distribución horizontal:
+                    //   [ excl. obj-1 ] [ obj-1 ] [ CRUCES ] [ obj-2 ] [ excl. obj-2 ]
+                    //
+                    // Los cruces entre sábanas quedan al centro, entre los objetivos.
+
+                    const targets  = targetNodes.toArray();
+                    const nT       = targets.length;
+                    // Zonas: nT objetivos + nT+1 bloques exteriores + 1 centro para cruces
+                    // Dividimos el ancho en 2*nT+1 secciones
+                    const sections = 2 * nT + 1;
+                    const secW     = (W - pad * 2) / sections;
+
+                    // Objetivos: secciones 1, 3, 5… (índice par en base-0 → 1-based odd)
+                    targets.forEach((t, i) => {
+                        const section = 1 + i * 2; // 1, 3, 5...
+                        positions[t.data('id')] = {
+                            x: pad + secW * section + secW / 2,
+                            y: H / 2,
+                        };
+                    });
+
+                    // Centro de cruces: sección del medio (nT para 2 targets → sección 1-based = nT)
+                    const crossX = pad + secW * nT + secW / 2;
+
+                    // Clasificar nodos no-objetivo
+                    const crossRefs  = [];
+                    const perTarget  = targets.map(() => []);
+                    const noLink     = [];
+
+                    this.cy.nodes(':visible').forEach(node => {
+                        if (node.data('isTarget')) return;
+
+                        if (node.data('crossRef')) {
+                            crossRefs.push(node); return;
+                        }
+
+                        // Asignar al objetivo con más llamadas conectadas
+                        let bestIdx = -1, bestCalls = 0;
+                        targets.forEach((t, i) => {
+                            const cnt = node.edgesWith(t).filter(':visible')
+                                .reduce((s, e) => s + (e.data('calls') || 0), 0);
+                            if (cnt > bestCalls) { bestCalls = cnt; bestIdx = i; }
+                        });
+
+                        if (bestIdx >= 0) perTarget[bestIdx].push(node);
+                        else              noLink.push(node);
+                    });
+
+                    crossRefs.sort(byFreq);
+                    perTarget.forEach(g => g.sort(byFreq));
+                    noLink.sort(byFreq);
+
+                    // Cruces al centro
+                    column(crossRefs, crossX);
+
+                    // Contactos exclusivos de cada objetivo: en la columna exterior de su target
+                    targets.forEach((t, i) => {
+                        // Para objetivo i (sección 2i+1), la columna exterior es
+                        // sección 2i (izquierda del primero) o 2i+2 (derecha del último)
+                        const outerSection = i < nT / 2
+                            ? 1 + i * 2 - 1        // a la izquierda del objetivo
+                            : 1 + i * 2 + 1;        // a la derecha del objetivo
+                        const colX = pad + secW * outerSection + secW / 2;
+                        column(perTarget[i], colX);
+                    });
+
+                    // Nodos sin enlace: fila inferior
+                    noLink.forEach((n, i) => {
+                        const cols  = Math.min(noLink.length, 6);
+                        const cellW = (W - pad * 2) / Math.max(cols, 1);
+                        positions[n.data('id')] = {
+                            x: pad + cellW / 2 + (i % cols) * cellW,
+                            y: H - pad - Math.floor(i / cols) * 50,
+                        };
+                    });
+                }
+
+                this.cy.layout({
+                    name:              'preset',
+                    positions:         node => positions[node.data('id')] || { x: W / 2, y: H / 2 },
+                    animate:           true,
+                    animationDuration: 800,
+                    animationEasing:   'ease-in-out',
+                    padding:           pad,
+                    fit:               true,
+                }).run();
+            },
+
             resetLayout() {
                 if (!this.cy) return;
+                this.directionalLayout = false;
                 this.cy.layout({
                     name:          'cose',
                     animate:       true,

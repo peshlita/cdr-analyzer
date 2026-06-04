@@ -25,14 +25,15 @@
     <div class="grid grid-cols-2 lg:grid-cols-5 gap-4">
         @php
         $cards = [
-            ['icon'=>'fas fa-database',     'color'=>'#3b82f6', 'value'=> number_format($stats['total']),    'label'=>'Total Registros'],
-            ['icon'=>'fas fa-phone',         'color'=>'#10b981', 'value'=> number_format($stats['voice']),    'label'=>'Llamadas Voz'],
-            ['icon'=>'fas fa-wifi',          'color'=>'#8b5cf6', 'value'=> number_format($stats['data']),     'label'=>'Sesiones Datos'],
-            ['icon'=>'fas fa-address-book',  'color'=>'#f59e0b', 'value'=> number_format($stats['contacts']), 'label'=>'Contactos Únicos'],
-            ['icon'=>'fas fa-clock',         'color'=>'#ef4444', 'value'=> $stats['hours'].'h',               'label'=>'Duración Total'],
+            ['icon'=>'fas fa-database',     'color'=>'#3b82f6', 'raw'=> $stats['total'],    'value'=> number_format($stats['total']),    'label'=>'Total Registros'],
+            ['icon'=>'fas fa-phone',         'color'=>'#10b981', 'raw'=> $stats['voice'],    'value'=> number_format($stats['voice']),    'label'=>'Llamadas Voz'],
+            ['icon'=>'fas fa-wifi',          'color'=>'#8b5cf6', 'raw'=> $stats['data'],     'value'=> number_format($stats['data']),     'label'=>'Sesiones Datos'],
+            ['icon'=>'fas fa-address-book',  'color'=>'#f59e0b', 'raw'=> $stats['contacts'], 'value'=> number_format($stats['contacts']), 'label'=>'Contactos Únicos'],
+            ['icon'=>'fas fa-clock',         'color'=>'#ef4444', 'raw'=> $stats['hours'],    'value'=> $stats['hours'].'h',               'label'=>'Duración Total'],
         ];
         @endphp
         @foreach($cards as $card)
+        @if($card['raw'] > 0)
         <div class="rounded-xl border border-slate-700 p-4" style="background-color:#1e293b;">
             <div class="flex items-start justify-between mb-3">
                 <div class="w-9 h-9 rounded-lg flex items-center justify-center" style="background-color:{{ $card['color'] }}20;">
@@ -42,6 +43,7 @@
             <p class="text-2xl font-bold text-white">{{ $card['value'] }}</p>
             <p class="text-xs text-slate-400 mt-1">{{ $card['label'] }}</p>
         </div>
+        @endif
         @endforeach
     </div>
 
