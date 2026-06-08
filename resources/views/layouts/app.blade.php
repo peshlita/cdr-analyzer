@@ -59,56 +59,163 @@
             @php
                 $user = auth()->user();
 
-                $comintItems = [
-                    ['url' => '/',         'icon' => 'fas fa-chart-pie',       'label' => 'Dashboard'],
-                    ['url' => '/upload',   'icon' => 'fas fa-file-csv',        'label' => 'Importar CSV'],
-                    ['url' => '/network',  'icon' => 'fas fa-project-diagram',  'label' => 'Red de Llamadas'],
-                    ['url' => '/analysis', 'icon' => 'fas fa-microscope',      'label' => 'Análisis'],
-                    ['url' => '/map',      'icon' => 'fas fa-map-marked-alt',  'label' => 'Mapa GPS'],
-                    ['url' => '/contacts', 'icon' => 'fas fa-address-book',    'label' => 'Contactos'],
-                    ['url' => '/report',   'icon' => 'fas fa-file-pdf',        'label' => 'Reporte PDF'],
+                $isComintOpen = request()->is('dashboard')
+                    ? false
+                    : (request()->is('comint/dashboard')
+                    || request()->is('upload*')
+                    || request()->is('network*')
+                    || request()->is('analysis*')
+                    || request()->is('map*')
+                    || request()->is('contacts*')
+                    || request()->is('report*'));
+
+                $hasComint = !$user || $user->hasModuleAccess('comint');
+
+                $comintSubItems = [
+                    ['url' => '/comint/dashboard', 'icon' => 'fas fa-chart-pie',        'label' => 'Dashboard COMINT', 'match' => 'comint/dashboard'],
+                    ['url' => '/upload',            'icon' => 'fas fa-file-csv',          'label' => 'Importar CSV',      'match' => 'upload*'],
+                    ['url' => '/network',           'icon' => 'fas fa-project-diagram',   'label' => 'Red de Llamadas',   'match' => 'network*'],
+                    ['url' => '/analysis',          'icon' => 'fas fa-microscope',        'label' => 'Análisis',          'match' => 'analysis*'],
+                    ['url' => '/map',               'icon' => 'fas fa-map-marked-alt',    'label' => 'Mapa GPS',          'match' => 'map*'],
+                    ['url' => '/contacts',          'icon' => 'fas fa-address-book',      'label' => 'Contactos',         'match' => 'contacts*'],
+                    ['url' => '/report',            'icon' => 'fas fa-file-pdf',          'label' => 'Reporte PDF',       'match' => 'report*'],
+                ];
+
+                $isGeointOpen = request()->is('geoint*');
+                $hasGeoint    = $user && $user->hasModuleAccess('geoint');
+                $geointAlerts = $hasGeoint ? \App\Models\GeofenceAlert::where('acknowledged', false)->count() : 0;
+
+                $geointSubItems = [
+                    ['url' => '/geoint',            'icon' => 'fas fa-map-marked-alt',  'label' => 'Mapa en Vivo',  'match' => 'geoint',           'badge' => 0],
+                    ['url' => '/geoint/units',      'icon' => 'fas fa-car',             'label' => 'Unidades',      'match' => 'geoint/units*',    'badge' => 0],
+                    ['url' => '/geoint/geofences',  'icon' => 'fas fa-draw-polygon',    'label' => 'Geocercas',     'match' => 'geoint/geofences*','badge' => 0],
+                    ['url' => '/geoint/alerts',     'icon' => 'fas fa-bell',            'label' => 'Alertas',       'match' => 'geoint/alerts*',   'badge' => $geointAlerts],
+                    ['url' => '/geoint/report',     'icon' => 'fas fa-file-pdf',        'label' => 'Reporte',       'match' => 'geoint/report*',   'badge' => 0],
                 ];
 
                 $otherModules = [
-                    ['slug' => 'osint',      'url' => '/osint',      'icon' => 'fas fa-user-secret',          'label' => 'OSINT',      'color' => '#7c3aed'],
-                    ['slug' => 'incidencia', 'url' => '/incidencia', 'icon' => 'fas fa-exclamation-triangle', 'label' => 'Incidencia', 'color' => '#dc2626'],
-                    ['slug' => 'geoint',     'url' => '/geoint',     'icon' => 'fas fa-satellite',            'label' => 'GEOINT',     'color' => '#059669'],
-                    ['slug' => 'casos',      'url' => '/casos',      'icon' => 'fas fa-folder-open',          'label' => 'Casos',      'color' => '#d97706'],
+                    ['slug' => 'osint',      'url' => '/osint',      'icon' => 'fas fa-search',      'label' => 'OSINT',      'color' => '#8b5cf6'],
+                    ['slug' => 'incidencia', 'url' => '/incidencia', 'icon' => 'fas fa-chart-bar',   'label' => 'Incidencia', 'color' => '#ef4444'],
+                    ['slug' => 'casos',      'url' => '/casos',      'icon' => 'fas fa-folder-open', 'label' => 'Casos',      'color' => '#f59e0b'],
                 ];
-
-                $hasComint = !$user || $user->hasModuleAccess('comint');
             @endphp
 
-            <!-- SECCIÓN: MÓDULOS -->
+            <!-- ── GENERAL ── -->
+            <div>
+                <p class="px-3 text-xs font-semibold text-slate-500 uppercase tracking-widest mb-2">General</p>
+                @php $isDashActive = request()->is('dashboard'); @endphp
+                <a href="/dashboard"
+                   class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150
+                          {{ $isDashActive ? 'text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700' }}"
+                   @if($isDashActive) style="background-color:#3b82f6;" @endif>
+                    <i class="fas fa-home w-4 text-center text-xs"></i>
+                    <span>Dashboard General</span>
+                </a>
+            </div>
+
+            <!-- ── MÓDULOS ── -->
             <div>
                 <p class="px-3 text-xs font-semibold text-slate-500 uppercase tracking-widest mb-2">
                     <i class="fas fa-th-large mr-1"></i> Módulos
                 </p>
 
-                <!-- COMINT / CDR -->
-                <div class="mb-1">
+                <!-- COMINT acordeón -->
+                <div x-data="{ open: {{ $isComintOpen ? 'true' : 'false' }} }" class="mb-1">
                     @if($hasComint)
-                        @foreach($comintItems as $item)
-                            @php
-                                $isActive = ($item['url'] === '/' && request()->is('/'))
-                                    || ($item['url'] !== '/' && request()->is(ltrim($item['url'], '/').'*'));
-                            @endphp
+                    <button @click="open = !open"
+                            class="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150
+                                   {{ $isComintOpen ? 'text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700' }}"
+                            @if($isComintOpen) style="background-color:#3b82f620;" @endif>
+                        <i class="fas fa-phone-volume w-4 text-center text-xs" style="color:#3b82f6;"></i>
+                        <span class="flex-1 text-left">COMINT</span>
+                        <i class="fas fa-chevron-right text-xs transition-transform duration-200"
+                           :class="open ? 'rotate-90' : ''"
+                           style="color:#3b82f6;"></i>
+                    </button>
+
+                    <div x-show="open"
+                         x-transition:enter="transition ease-out duration-150"
+                         x-transition:enter-start="opacity-0 -translate-y-1"
+                         x-transition:enter-end="opacity-100 translate-y-0"
+                         x-transition:leave="transition ease-in duration-100"
+                         x-transition:leave-start="opacity-100 translate-y-0"
+                         x-transition:leave-end="opacity-0 -translate-y-1"
+                         class="mt-1 ml-2 space-y-0.5"
+                         x-cloak>
+                        @foreach($comintSubItems as $item)
+                            @php $isActive = request()->is($item['match']); @endphp
                             <a href="{{ $item['url'] }}"
-                               class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150
-                                      {{ $isActive ? 'text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700' }}"
-                               @if($isActive) style="background-color:#3b82f6;" @endif>
-                                <i class="{{ $item['icon'] }} w-4 text-center text-xs"></i>
+                               class="flex items-center gap-2 pl-6 pr-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-150 border-l-2
+                                      {{ $isActive
+                                          ? 'text-white border-blue-500'
+                                          : 'text-slate-400 hover:text-white hover:bg-slate-700 border-transparent' }}"
+                               @if($isActive) style="background-color:#3b82f615;" @endif>
+                                <i class="{{ $item['icon'] }} w-4 text-center flex-shrink-0"
+                                   style="color:{{ $isActive ? '#3b82f6' : '#475569' }};"></i>
                                 <span>{{ $item['label'] }}</span>
                             </a>
                         @endforeach
+                    </div>
+
                     @else
-                        @foreach($comintItems as $item)
-                        <div class="nav-locked flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-slate-600">
-                            <i class="{{ $item['icon'] }} w-4 text-center text-xs"></i>
-                            <span>{{ $item['label'] }}</span>
-                            <i class="fas fa-lock ml-auto text-xs"></i>
-                        </div>
+                    <div class="nav-locked flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-slate-600">
+                        <i class="fas fa-phone-volume w-4 text-center text-xs"></i>
+                        <span class="flex-1">COMINT</span>
+                        <i class="fas fa-lock text-xs"></i>
+                    </div>
+                    @endif
+                </div>
+
+                <!-- GEOINT acordeón -->
+                <div x-data="{ open: {{ $isGeointOpen ? 'true' : 'false' }} }" class="mb-1">
+                    @if($hasGeoint)
+                    <button @click="open = !open"
+                            class="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150
+                                   {{ $isGeointOpen ? 'text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700' }}"
+                            @if($isGeointOpen) style="background-color:#10b98120;" @endif>
+                        <i class="fas fa-satellite w-4 text-center text-xs" style="color:#10b981;"></i>
+                        <span class="flex-1 text-left">GEOINT</span>
+                        @if($geointAlerts > 0)
+                        <span class="text-xs font-bold px-1.5 py-0.5 rounded-full text-white mr-1" style="background-color:#ef4444;">{{ $geointAlerts }}</span>
+                        @endif
+                        <i class="fas fa-chevron-right text-xs transition-transform duration-200"
+                           :class="open ? 'rotate-90' : ''"
+                           style="color:#10b981;"></i>
+                    </button>
+
+                    <div x-show="open"
+                         x-transition:enter="transition ease-out duration-150"
+                         x-transition:enter-start="opacity-0 -translate-y-1"
+                         x-transition:enter-end="opacity-100 translate-y-0"
+                         x-transition:leave="transition ease-in duration-100"
+                         x-transition:leave-start="opacity-100 translate-y-0"
+                         x-transition:leave-end="opacity-0 -translate-y-1"
+                         class="mt-1 ml-2 space-y-0.5"
+                         x-cloak>
+                        @foreach($geointSubItems as $item)
+                            @php $isActive = request()->is($item['match']); @endphp
+                            <a href="{{ $item['url'] }}"
+                               class="flex items-center gap-2 pl-6 pr-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-150 border-l-2
+                                      {{ $isActive
+                                          ? 'text-white border-green-500'
+                                          : 'text-slate-400 hover:text-white hover:bg-slate-700 border-transparent' }}"
+                               @if($isActive) style="background-color:#10b98115;" @endif>
+                                <i class="{{ $item['icon'] }} w-4 text-center flex-shrink-0"
+                                   style="color:{{ $isActive ? '#10b981' : '#475569' }};"></i>
+                                <span class="flex-1">{{ $item['label'] }}</span>
+                                @if($item['badge'] > 0)
+                                <span class="text-xs font-bold px-1.5 py-0.5 rounded-full text-white" style="background-color:#ef4444;">{{ $item['badge'] }}</span>
+                                @endif
+                            </a>
                         @endforeach
+                    </div>
+
+                    @else
+                    <div class="nav-locked flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-slate-600">
+                        <i class="fas fa-satellite w-4 text-center text-xs"></i>
+                        <span class="flex-1">GEOINT</span>
+                        <i class="fas fa-lock text-xs"></i>
+                    </div>
                     @endif
                 </div>
 
@@ -135,7 +242,7 @@
                 @endforeach
             </div>
 
-            <!-- SECCIÓN: ADMINISTRACIÓN (solo super_admin) -->
+            <!-- ── ADMINISTRACIÓN (solo super_admin) ── -->
             @if($user && $user->isSuperAdmin())
             <div>
                 <p class="px-3 text-xs font-semibold text-slate-500 uppercase tracking-widest mb-2">
@@ -144,10 +251,10 @@
 
                 @php
                     $adminItems = [
-                        ['url' => '/admin',        'icon' => 'fas fa-tachometer-alt', 'label' => 'Panel Admin'],
-                        ['url' => '/admin/users',  'icon' => 'fas fa-users',          'label' => 'Usuarios'],
-                        ['url' => '/admin/audit',  'icon' => 'fas fa-clipboard-list', 'label' => 'Auditoría'],
-                        ['url' => '/admin/settings','icon'=> 'fas fa-cog',            'label' => 'Configuración'],
+                        ['url' => '/admin',          'icon' => 'fas fa-shield-alt',     'label' => 'Panel Admin'],
+                        ['url' => '/admin/users',    'icon' => 'fas fa-users',          'label' => 'Usuarios'],
+                        ['url' => '/admin/audit',    'icon' => 'fas fa-clipboard-list', 'label' => 'Auditoría'],
+                        ['url' => '/admin/settings', 'icon' => 'fas fa-cog',            'label' => 'Configuración'],
                     ];
                 @endphp
 

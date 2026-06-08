@@ -1,7 +1,8 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use App\Livewire\Dashboard;
+use App\Livewire\MainDashboard;
+use App\Livewire\ComintDashboard;
 use App\Livewire\CsvUploader;
 use App\Livewire\ContactManager;
 use App\Http\Controllers\NetworkController;
@@ -9,6 +10,10 @@ use App\Http\Controllers\MapController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\AnalysisController;
 use App\Http\Controllers\ModuleController;
+use App\Http\Controllers\GeointController;
+use App\Livewire\Geoint\GeointUnits;
+use App\Livewire\Geoint\GeointGeofences;
+use App\Livewire\Geoint\GeointAlerts;
 use App\Http\Controllers\Auth\TwoFactorController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Admin\PermissionController;
@@ -26,11 +31,15 @@ Route::post('/two-factor', [TwoFactorController::class, 'challenge']);
 // ═══════════════════════════════════════
 Route::middleware(['auth', 'active.user'])->group(function () {
 
-    // Dashboard: accesible a todos los autenticados (landing page de módulos)
-    Route::get('/', Dashboard::class)->name('dashboard');
+    // Raíz redirige al dashboard general
+    Route::get('/', fn() => redirect()->route('dashboard'));
+
+    // Dashboard general — accesible a todos los autenticados
+    Route::get('/dashboard', MainDashboard::class)->name('dashboard');
 
     // ── COMINT / CDR ──────────────────────────────
     Route::middleware('module:comint')->group(function () {
+        Route::get('/comint/dashboard', ComintDashboard::class)->name('comint.dashboard');
         Route::get('/upload', CsvUploader::class)->name('upload');
         Route::get('/contacts', ContactManager::class)->name('contacts');
         Route::get('/network', [NetworkController::class, 'index'])->name('network');
@@ -51,8 +60,23 @@ Route::middleware(['auth', 'active.user'])->group(function () {
     // ── OTROS MÓDULOS ─────────────────────────────
     Route::middleware('module:osint')->get('/osint', [ModuleController::class, 'osint'])->name('osint');
     Route::middleware('module:incidencia')->get('/incidencia', [ModuleController::class, 'incidencia'])->name('incidencia');
-    Route::middleware('module:geoint')->get('/geoint', [ModuleController::class, 'geoint'])->name('geoint');
     Route::middleware('module:casos')->get('/casos', [ModuleController::class, 'casos'])->name('casos');
+
+    // ── GEOINT ────────────────────────────────────
+    Route::middleware('module:geoint')->prefix('geoint')->name('geoint.')->group(function () {
+        Route::get('/',          [GeointController::class, 'index'])->name('map');
+        Route::get('/units',     GeointUnits::class)->name('units');
+        Route::get('/geofences', GeointGeofences::class)->name('geofences');
+        Route::get('/alerts',    GeointAlerts::class)->name('alerts');
+        Route::get('/report',    [GeointController::class, 'report'])->name('report');
+    });
+
+    // ── APIs GEOINT ───────────────────────────────
+    Route::middleware('module:geoint')->prefix('api/geoint')->group(function () {
+        Route::get('/units',              [GeointController::class, 'apiUnits'])->name('api.geoint.units');
+        Route::get('/unit/{id}/history',  [GeointController::class, 'apiUnitHistory'])->name('api.geoint.history');
+        Route::get('/geofences',          [GeointController::class, 'apiGeofences'])->name('api.geoint.geofences');
+    });
 
     // ── 2FA SETUP ─────────────────────────────────
     Route::get('/two-factor/setup', [TwoFactorController::class, 'showSetup'])->name('two-factor.setup');
