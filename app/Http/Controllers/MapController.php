@@ -12,7 +12,7 @@ class MapController extends Controller
     {
         // Solo mostrar los números objetivo (uno por sábana cargada),
         // usando el mismo criterio que los demás módulos.
-        $targetsByFile = \DB::table('cdr_records')
+        $targetsByFile = \App\Models\CdrRecord::query()
             ->selectRaw('source_file, number_a, COUNT(*) as cnt')
             ->whereNotNull('number_a')->whereNotNull('source_file')
             ->groupBy('source_file', 'number_a')
@@ -42,8 +42,10 @@ class MapController extends Controller
         }
 
         $png = base64_decode(str_replace('data:image/png;base64,', '', $dataUri));
-        \Storage::disk('public')->makeDirectory('snapshots');
-        \Storage::disk('public')->put("snapshots/{$type}.png", $png);
+        // Snapshots por usuario: cada quien guarda los suyos en su carpeta.
+        $dir = 'snapshots/' . auth()->id();
+        \Storage::disk('public')->makeDirectory($dir);
+        \Storage::disk('public')->put("{$dir}/{$type}.png", $png);
 
         return response()->json(['success' => true]);
     }
@@ -56,7 +58,7 @@ class MapController extends Controller
         // Resolución de sábana por número objetivo (mismo criterio que los demás módulos)
         $sourceFileForNumber = null;
         if ($request->filled('number')) {
-            $sourceFileForNumber = \DB::table('cdr_records')
+            $sourceFileForNumber = \App\Models\CdrRecord::query()
                 ->where('number_a', $request->number)
                 ->whereNotNull('source_file')
                 ->value('source_file');

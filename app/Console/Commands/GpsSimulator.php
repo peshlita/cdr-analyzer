@@ -3,6 +3,8 @@
 namespace App\Console\Commands;
 
 use App\Models\GpsUnit;
+use App\Models\Tenant;
+use App\Models\User;
 use Illuminate\Console\Command;
 use React\EventLoop\Loop;
 
@@ -76,6 +78,13 @@ class GpsSimulator extends Command
 
     private function ensureUnits(int $count): \Illuminate\Support\Collection
     {
+        // Las unidades simuladas pertenecen al tenant demo y, como propietario,
+        // al analista demo (así el analista las ve; los admins también).
+        $tenantId = Tenant::where('slug', 'demo')->value('id')
+                 ?? Tenant::orderBy('id')->value('id');
+        $ownerId = User::where('tenant_id', $tenantId)->where('role', 'analyst')->value('id')
+                ?? User::where('tenant_id', $tenantId)->value('id');
+
         $existing = GpsUnit::where('imei', 'like', 'SIM%')->limit($count)->get();
 
         if ($existing->count() >= $count) {
@@ -89,6 +98,8 @@ class GpsSimulator extends Command
             GpsUnit::firstOrCreate(
                 ['imei' => "SIM{$i}000000000000"],
                 [
+                    'tenant_id' => $tenantId,
+                    'user_id'   => $ownerId,
                     'name'      => "Simulador {$i}",
                     'plate'     => "SIM-{$i}000",
                     'unit_type' => $types[$i % 2],

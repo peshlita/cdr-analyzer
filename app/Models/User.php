@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -15,6 +16,7 @@ class User extends Authenticatable
         'email',
         'password',
         'role',
+        'tenant_id',
         'is_active',
         'two_factor_enabled',
         'two_factor_secret',
@@ -42,6 +44,56 @@ class User extends Authenticatable
     public function isSuperAdmin(): bool
     {
         return $this->role === 'super_admin';
+    }
+
+    public function tenant()
+    {
+        return $this->belongsTo(Tenant::class);
+    }
+
+    /**
+     * Super Admin GLOBAL: super_admin sin tenant → ve todas las instituciones.
+     */
+    public function isGlobalAdmin(): bool
+    {
+        return $this->role === 'super_admin' && !$this->tenant_id;
+    }
+
+    /**
+     * Admin de una institución: super_admin con tenant asignado.
+     */
+    public function isTenantAdmin(): bool
+    {
+        return $this->role === 'super_admin' && (bool) $this->tenant_id;
+    }
+
+    /**
+     * Limita una consulta de usuarios a los visibles para $admin:
+     *  - admin global → todos.
+     *  - admin de institución → solo los de su tenant.
+     */
+    public function scopeVisibleTo(Builder $query, User $admin): Builder
+    {
+        if ($admin->isGlobalAdmin()) {
+            return $query;
+        }
+
+        return $query->where('tenant_id', $admin->tenant_id);
+    }
+
+    /**
+     * ¿$admin puede gestionar (editar/permisos/reset) a este usuario?
+     */
+    public function isManageableBy(User $admin): bool
+    {
+        if ($admin->isGlobalAdmin()) {
+            return true;
+        }
+        if ($admin->isTenantAdmin()) {
+            return $this->tenant_id === $admin->tenant_id;
+        }
+
+        return false;
     }
 
     public function hasModuleAccess(string $module): bool
@@ -77,7 +129,7 @@ class User extends Authenticatable
     public function getRoleLabelAttribute(): string
     {
         return match($this->role) {
-            'super_admin' => 'Super Admin',
+            'super_admin' => $this->tenant_id ? 'Admin Institución' : 'Admin Global',
             'analyst'     => 'Analista',
             default       => $this->role,
         };

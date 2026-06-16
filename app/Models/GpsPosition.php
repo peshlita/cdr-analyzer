@@ -2,11 +2,15 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToTenant;
 use Illuminate\Database\Eloquent\Model;
 
 class GpsPosition extends Model
 {
+    use BelongsToTenant;
+
     protected $fillable = [
+        'tenant_id',
         'gps_unit_id', 'lat', 'lon', 'speed', 'heading',
         'altitude', 'satellites', 'accuracy', 'raw_data', 'received_at',
     ];

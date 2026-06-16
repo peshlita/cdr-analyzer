@@ -18,7 +18,7 @@
 </style>
 @endpush
 
-<div class="flex gap-4" style="height: calc(100vh - 138px);" wire:poll.10s>
+<div class="flex gap-4" style="height: calc(100vh - 138px);">
 
     {{-- Mapa --}}
     <div class="flex-1 rounded-xl overflow-hidden border border-slate-700 relative">

@@ -2,11 +2,15 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToTenant;
 use Illuminate\Database\Eloquent\Model;
 
 class GeofenceAlert extends Model
 {
+    use BelongsToTenant;
+
     protected $fillable = [
+        'tenant_id',
         'geofence_id', 'gps_unit_id', 'alert_type',
         'lat', 'lon', 'triggered_at',
         'acknowledged', 'acknowledged_by', 'acknowledged_at',

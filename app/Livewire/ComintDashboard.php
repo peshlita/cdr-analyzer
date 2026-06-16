@@ -2,8 +2,10 @@
 
 namespace App\Livewire;
 
+use App\Models\CdrBatch;
 use App\Models\CdrRecord;
 use App\Models\PhoneContact;
+use App\Services\CdrFrequencyAnalyzer;
 use Livewire\Component;
 use Illuminate\Support\Facades\DB;
 
@@ -14,9 +16,53 @@ class ComintDashboard extends Component
     public array $topNumbers = [];
     public array $hourlyActivity = [];
 
+    // Análisis de frecuencia y cruces
+    public int $topContactsLimit = 10;
+    public $batches;
+    public array $topContacts = [];
+    public array $temporalPatterns = [];
+    public array $crossAnalysis = [];
+
     public function mount(): void
     {
         $this->loadStats();
+        $this->loadFrequencyAnalysis();
+    }
+
+    public function updatedTopContactsLimit(): void
+    {
+        $this->loadFrequencyAnalysis();
+    }
+
+    private function loadFrequencyAnalysis(): void
+    {
+        $this->batches = CdrBatch::orderBy('created_at', 'desc')->get();
+        $analyzer = new CdrFrequencyAnalyzer();
+
+        $this->topContacts      = [];
+        $this->temporalPatterns = [];
+        $this->crossAnalysis    = [];
+
+        if ($this->batches->count() === 1) {
+            $batchId = $this->batches->first()->batch_id;
+            $this->topContacts = $analyzer->getTopContacts($batchId, $this->topContactsLimit);
+
+            $this->temporalPatterns = collect($this->topContacts)
+                ->take(3)
+                ->map(fn ($c) => array_merge($c, [
+                    'pattern' => $analyzer->getTemporalPattern($batchId, $c['number']),
+                ]))->toArray();
+        } elseif ($this->batches->count() >= 2) {
+            $this->topContacts = $this->batches->map(function ($batch) use ($analyzer) {
+                return [
+                    'batch'    => $batch,
+                    'contacts' => $analyzer->getTopContacts($batch->batch_id, $this->topContactsLimit),
+                ];
+            })->toArray();
+
+            $batchIds = $this->batches->pluck('batch_id')->toArray();
+            $this->crossAnalysis = $analyzer->getCrossAnalysisWithPattern($batchIds);
+        }
     }
 
     private function loadStats(): void
@@ -47,7 +93,7 @@ class ComintDashboard extends Component
             'data'   => $byDay->pluck('cnt')->values()->toArray(),
         ];
 
-        $targetNumbers = DB::table('cdr_records')
+        $targetNumbers = \App\Models\CdrRecord::query()
             ->selectRaw('source_file, number_a, COUNT(*) as cnt')
             ->whereNotNull('number_a')->whereNotNull('source_file')
             ->groupBy('source_file', 'number_a')
@@ -55,18 +101,19 @@ class ComintDashboard extends Component
             ->map(fn($g) => $g->sortByDesc('cnt')->first()->number_a)
             ->values()->unique()->filter()->toArray();
 
+        $own = \App\Models\CdrRecord::ownershipSql('cdr_records');
         $topRows = collect(DB::select("
             SELECT phone, SUM(cnt) AS cnt
             FROM (
                 SELECT number_a AS phone, COUNT(*) AS cnt
-                  FROM cdr_records WHERE number_a IS NOT NULL AND number_b IS NOT NULL GROUP BY number_a
+                  FROM cdr_records WHERE number_a IS NOT NULL AND number_b IS NOT NULL {$own['sql']} GROUP BY number_a
                 UNION ALL
                 SELECT number_b AS phone, COUNT(*) AS cnt
-                  FROM cdr_records WHERE number_a IS NOT NULL AND number_b IS NOT NULL GROUP BY number_b
+                  FROM cdr_records WHERE number_a IS NOT NULL AND number_b IS NOT NULL {$own['sql']} GROUP BY number_b
             ) t
             GROUP BY phone
             ORDER BY cnt DESC
-        "));
+        ", array_merge($own['bindings'], $own['bindings'])));
 
         if (!empty($targetNumbers)) {
             $topRows = $topRows->filter(fn($r) => !in_array($r->phone, $targetNumbers));

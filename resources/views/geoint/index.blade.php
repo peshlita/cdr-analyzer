@@ -17,9 +17,8 @@
     .unit-marker {
         background: #1e293b;
         border-radius: 50%;
-        width: 36px; height: 36px;
         display: flex; align-items: center; justify-content: center;
-        border: 2px solid #6b7280;
+        border: 2.5px solid #6b7280;
         box-shadow: 0 2px 8px rgba(0,0,0,.6);
         transition: border-color .3s, box-shadow .3s;
     }
@@ -165,8 +164,12 @@
         attribution: '© OpenStreetMap', maxZoom: 19,
     }).addTo(map);
 
+    const REFRESH_INTERVAL   = 5000; // refrescar datos cada 5s
+    const ANIMATION_DURATION = 4500; // duración del desplazamiento suave entre puntos
+
     const markers      = {};   // id → L.Marker
-    const markerData   = {};   // id → last unit data (para detectar cambios de posición)
+    const unitData     = {};   // id → últimos datos de la unidad (para diff de marcador y tarjeta)
+    const animFrames   = {};   // id → requestAnimationFrame activo
     const polylines    = {};   // id → L.Polyline
     const historyMarkers = []; // marcadores de inicio/fin del historial
     let showCovert     = true;
@@ -180,7 +183,17 @@
                 if (f.type === 'circle' && f.center_lat) {
                     L.circle([f.center_lat, f.center_lon], {
                         radius: f.radius, color: f.color, fillColor: f.color, fillOpacity: 0.1, weight: 2,
-                    }).addTo(map).bindTooltip(f.name, { permanent: true, direction: 'center' });
+                    }).addTo(map).bindPopup(
+                        `<div style="background:#1e293b;color:#e2e8f0;padding:10px 14px;
+                                     border-radius:8px;min-width:180px;
+                                     border:1px solid ${f.color}40;">
+                             <div style="font-weight:600;font-size:14px;
+                                  color:${f.color};margin-bottom:6px;">${f.name}</div>
+                             <div style="font-size:12px;color:#94a3b8;">Radio: ${f.radius} m</div>
+                             <div style="font-size:12px;color:#94a3b8;">Estado: ${f.is_active !== false ? 'Activa' : 'Inactiva'}</div>
+                         </div>`,
+                        { className: 'geofence-popup', closeButton: true }
+                    );
                 }
             });
         });
@@ -204,30 +217,88 @@
     }
 
     function createUnitIcon(unit) {
-        const c     = cfg(unit.status);
-        const icon  = unit.icon || 'fa-car';
-        const glow  = c.pulse ? `0 0 10px ${c.color}80` : `0 2px 8px rgba(0,0,0,.6)`;
-        const opacity = unit.status === 'offline' ? '0.5' : '1';
+        const statusColors = {
+            online:    '#10b981',
+            parked:    '#3b82f6',
+            overnight: '#8b5cf6',
+            idle:      '#f59e0b',
+            offline:   '#6b7280',
+        };
 
-        let badge = '';
-        if (unit.status === 'parked') {
-            badge = `<div class="marker-badge" style="background:${c.color};">P</div>`;
-        } else if (unit.status === 'overnight') {
-            badge = `<div class="marker-badge" style="background:${c.color};"><i class="fas fa-moon" style="font-size:6px;"></i></div>`;
-        }
+        const borderColor = statusColors[unit.status] || '#6b7280';
+        const iconColor   = unit.color || borderColor;
+        const opacity     = unit.status === 'offline' ? '0.5' : '1';
+        const borderStyle = unit.status === 'offline'
+            ? 'border:2px dashed #6b7280;'
+            : `border:2.5px solid ${borderColor};`;
+
+        const iconMap = {
+            'fa-shield-alt':     'fa-shield-alt',
+            'fa-shield-halved':  'fa-shield-alt',
+            'fa-car':            'fa-car',
+            'fa-truck':          'fa-truck',
+            'fa-motorcycle':     'fa-motorcycle',
+            'fa-bus':            'fa-bus',
+            'fa-helicopter':     'fa-helicopter',
+            'fa-ship':           'fa-ship',
+            'fa-person-walking': 'fa-walking',
+            'fa-bicycle':        'fa-bicycle',
+        };
+        const faIcon = iconMap[unit.icon] || 'fa-car';
+
+        const isPatrol = unit.icon === 'fa-shield-alt'   ||
+                         unit.icon === 'fa-shield-halved' ||
+                         unit.unit_type === 'patrol';
+
+        // Badge azul marino con estrella — solo patrullas
+        const starBadge = isPatrol
+            ? `<div style="position:absolute;top:-6px;right:-6px;
+                   width:16px;height:16px;background:#1e3a5f;
+                   border:1.5px solid white;border-radius:50%;
+                   font-size:10px;line-height:16px;text-align:center;
+                   color:white;box-shadow:0 1px 3px rgba(0,0,0,0.4);">★</div>`
+            : '';
+
+        // Badge P azul — estacionado (sin patrulla)
+        const parkBadge = (unit.status === 'parked' && !isPatrol)
+            ? `<div style="position:absolute;top:-6px;right:-6px;
+                   width:16px;height:16px;background:#3b82f6;
+                   border:1.5px solid white;border-radius:50%;
+                   font-size:9px;font-weight:bold;line-height:16px;
+                   text-align:center;color:white;
+                   box-shadow:0 1px 3px rgba(0,0,0,0.4);">P</div>`
+            : '';
+
+        // Badge luna — pernocta (prioridad máxima)
+        const nightBadge = unit.status === 'overnight'
+            ? `<div style="position:absolute;top:-6px;right:-6px;
+                   width:16px;height:16px;background:#8b5cf6;
+                   border:1.5px solid white;border-radius:50%;
+                   font-size:9px;line-height:16px;text-align:center;
+                   color:white;box-shadow:0 1px 3px rgba(0,0,0,0.4);">🌙</div>`
+            : '';
+
+        const badge = nightBadge || parkBadge || starBadge;
 
         return L.divIcon({
             className: '',
-            html: `<div style="position:relative;width:36px;height:36px;">
-                       <div class="unit-marker" data-marker-id="${unit.id}"
-                            style="border-color:${c.color};box-shadow:${glow};opacity:${opacity};">
-                           <i class="fas ${icon}" style="color:${c.color};font-size:14px;"></i>
-                       </div>
-                       ${badge}
+            html: `<div style="position:relative;width:40px;height:40px;opacity:${opacity};">
+                     <div data-marker-id="${unit.id}"
+                          style="position:absolute;inset:0;
+                                 background:white;
+                                 ${borderStyle}
+                                 border-radius:50%;
+                                 box-shadow:0 2px 6px rgba(0,0,0,0.25);
+                                 display:flex;align-items:center;
+                                 justify-content:center;">
+                       <i class="fas ${faIcon}"
+                          style="color:${iconColor};font-size:16px;line-height:1;"></i>
+                     </div>
+                     ${badge}
                    </div>`,
-            iconSize: [36, 36],
-            iconAnchor: [18, 18],
-            popupAnchor: [0, -22],
+            iconSize:    [40, 40],
+            iconAnchor:  [20, 20],
+            popupAnchor: [0, -24],
         });
     }
 
@@ -288,11 +359,7 @@
     }
 
     // ── Tarjeta del panel lateral ─────────────────────────────
-    function buildCard(unit) {
-        const card = document.createElement('div');
-        card.className = 'unit-card';
-        card.id = `card-${unit.id}`;
-
+    function cardInnerHtml(unit) {
         const c    = cfg(unit.status);
         const icon = unit.icon || 'fa-car';
 
@@ -304,18 +371,18 @@
 
         const extraLine = (unit.status === 'parked' || unit.status === 'overnight')
             ? `<div style="font-size:10px;color:${c.color};padding-left:44px;margin-top:3px;">
-                   ${c.label} desde ${unit.last_seen}
+                   ${c.label} desde <span class="unit-time">${unit.last_seen}</span>
                </div>`
             : '';
 
-        card.innerHTML = `
+        return `
         <div style="display:flex;align-items:center;gap:10px;">
             <div style="position:relative;flex-shrink:0;">
                 <div style="width:34px;height:34px;border-radius:50%;background:#0f172a;
                             border:2px solid ${c.color};display:flex;align-items:center;
                             justify-content:center;box-shadow:0 0 6px ${c.color}50;
                             opacity:${unit.status === 'offline' ? '.5' : '1'};">
-                    <i class="fas ${icon}" style="color:${unit.color};font-size:13px;"></i>
+                    <i class="fas ${icon}" style="color:${unit.color || c.color};font-size:13px;"></i>
                 </div>
                 ${unit.status === 'parked'    ? `<div class="marker-badge" style="background:${c.color};top:-3px;right:-3px;">P</div>` : ''}
                 ${unit.status === 'overnight' ? `<div class="marker-badge" style="background:${c.color};top:-3px;right:-3px;"><i class="fas fa-moon" style="font-size:5px;"></i></div>` : ''}
@@ -325,7 +392,7 @@
                     <p style="color:#fff;font-size:13px;font-weight:600;
                                white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
                                max-width:120px;">${unit.name}${badgeHtml}</p>
-                    <span style="font-size:10px;padding:2px 7px;border-radius:4px;
+                    <span class="unit-status-badge" style="font-size:10px;padding:2px 7px;border-radius:4px;
                                  background:${c.bg};color:${c.text};font-weight:600;
                                  white-space:nowrap;flex-shrink:0;">${c.label}</span>
                 </div>
@@ -334,24 +401,53 @@
         </div>
         <div style="display:flex;gap:14px;margin-top:7px;padding-left:44px;">
             <span style="font-size:11px;color:#94a3b8;">
-                <i class="fas fa-bolt" style="color:#f59e0b;margin-right:3px;"></i>${unit.speed} km/h
+                <i class="fas fa-bolt" style="color:#f59e0b;margin-right:3px;"></i><span class="unit-speed">${unit.speed} km/h</span>
             </span>
             <span style="font-size:11px;color:#94a3b8;">
-                <i class="fas fa-clock" style="color:#64748b;margin-right:3px;"></i>${unit.last_seen}
+                <i class="fas fa-clock" style="color:#64748b;margin-right:3px;"></i><span class="unit-time">${unit.last_seen}</span>
             </span>
         </div>
         ${extraLine}`;
+    }
+
+    function buildCard(unit) {
+        const card = document.createElement('div');
+        card.className = 'unit-card';
+        card.id = `card-${unit.id}`;
+        card.dataset.unitId = unit.id;
+        card.innerHTML = cardInnerHtml(unit);
 
         card.addEventListener('click', () => {
             document.querySelectorAll('.unit-card').forEach(c => c.classList.remove('active'));
             card.classList.add('active');
-            if (unit.lat && unit.lon) {
-                map.setView([unit.lat, unit.lon], 16, { animate: true });
+            const current = unitData[unit.id] || unit;
+            if (current.lat && current.lon) {
+                map.setView([current.lat, current.lon], 16, { animate: true });
                 markers[unit.id]?.openPopup();
             }
         });
 
         return card;
+    }
+
+    // Actualiza una tarjeta existente sin recrear su HTML salvo que cambie el estado/ícono/color
+    function updateCard(card, unit, prev) {
+        const needsRebuild = !prev
+            || prev.status !== unit.status
+            || prev.icon   !== unit.icon
+            || prev.color  !== unit.color
+            || prev.name   !== unit.name
+            || prev.plate  !== unit.plate;
+
+        if (needsRebuild) {
+            card.innerHTML = cardInnerHtml(unit);
+            return;
+        }
+
+        const speedEl = card.querySelector('.unit-speed');
+        if (speedEl) speedEl.textContent = `${unit.speed} km/h`;
+
+        card.querySelectorAll('.unit-time').forEach(el => { el.textContent = unit.last_seen; });
     }
 
     // ── Pulso en marcador ─────────────────────────────────────
@@ -364,39 +460,93 @@
         setTimeout(() => el.classList.remove('marker-pulse'), 1100);
     }
 
-    // ── Renderizar lista completa ─────────────────────────────
-    function renderUnits(units) {
-        const counts = { online: 0, parked: 0, overnight: 0, idle: 0, offline: 0 };
+    // ── Movimiento suave entre posiciones (interpolación lineal + easing) ──
+    function animateMarker(id, fromLat, fromLon, toLat, toLon) {
+        if (animFrames[id]) cancelAnimationFrame(animFrames[id]);
 
+        const start = performance.now();
+
+        function step(now) {
+            const t = Math.min((now - start) / ANIMATION_DURATION, 1);
+            const eased = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t; // ease-in-out
+
+            const lat = fromLat + (toLat - fromLat) * eased;
+            const lon = fromLon + (toLon - fromLon) * eased;
+            markers[id]?.setLatLng([lat, lon]);
+
+            if (t < 1) {
+                animFrames[id] = requestAnimationFrame(step);
+            } else {
+                delete animFrames[id];
+            }
+        }
+
+        animFrames[id] = requestAnimationFrame(step);
+    }
+
+    // ── Aplicar datos recibidos al mapa y al panel lateral ────
+    function updateMap(units) {
+        const counts = { online: 0, parked: 0, overnight: 0, idle: 0, offline: 0 };
         const list = document.getElementById('unitsList');
-        list.innerHTML = '';
+        const activeIds = new Set();
 
         units.forEach(unit => {
             counts[unit.status] = (counts[unit.status] || 0) + 1;
+            activeIds.add(unit.id);
 
-            if (!showCovert && unit.unit_type === 'covert') return;
+            const prev = unitData[unit.id];
 
-            const newIcon = createUnitIcon(unit);
+            if (!showCovert && unit.unit_type === 'covert') {
+                unitData[unit.id] = unit;
+                document.getElementById(`card-${unit.id}`)?.remove();
+                return;
+            }
 
+            // ── Marcador en el mapa ──
             if (unit.lat && unit.lon) {
                 if (markers[unit.id]) {
-                    const prev = markerData[unit.id];
-                    if (prev && (prev.lat !== unit.lat || prev.lon !== unit.lon)) {
-                        markers[unit.id].setLatLng([unit.lat, unit.lon]);
+                    if (prev && prev.lat != null && prev.lon != null
+                        && (prev.lat !== unit.lat || prev.lon !== unit.lon)) {
+                        animateMarker(unit.id, prev.lat, prev.lon, unit.lat, unit.lon);
                         pulseMarker(unit.id);
+                    } else if (!prev) {
+                        markers[unit.id].setLatLng([unit.lat, unit.lon]);
                     }
-                    markers[unit.id].setIcon(newIcon);
+
+                    // Recrear ícono solo si cambió estado, color o ícono (heading ya no afecta el ícono)
+                    if (!prev || prev.status !== unit.status || prev.icon !== unit.icon
+                        || prev.color !== unit.color) {
+                        markers[unit.id].setIcon(createUnitIcon(unit));
+                    }
                     markers[unit.id].getPopup()?.setContent(buildPopup(unit));
                 } else {
-                    markers[unit.id] = L.marker([unit.lat, unit.lon], { icon: newIcon })
+                    markers[unit.id] = L.marker([unit.lat, unit.lon], { icon: createUnitIcon(unit) })
                         .addTo(map)
                         .bindPopup(buildPopup(unit), { maxWidth: 240 });
                 }
                 markers[unit.id]._unitType = unit.unit_type;
             }
 
-            markerData[unit.id] = { lat: unit.lat, lon: unit.lon };
-            list.appendChild(buildCard(unit));
+            // ── Tarjeta del panel lateral ──
+            let card = document.getElementById(`card-${unit.id}`);
+            if (card) {
+                updateCard(card, unit, prev);
+            } else {
+                list.appendChild(buildCard(unit));
+            }
+
+            unitData[unit.id] = unit;
+        });
+
+        // Quitar marcadores y tarjetas de unidades que ya no están activas
+        Object.keys(markers).forEach(id => {
+            if (!activeIds.has(parseInt(id))) {
+                map.removeLayer(markers[id]);
+                delete markers[id];
+                delete unitData[id];
+                if (animFrames[id]) { cancelAnimationFrame(animFrames[id]); delete animFrames[id]; }
+                document.getElementById(`card-${id}`)?.remove();
+            }
         });
 
         // Barra de estado — 5 contadores
@@ -498,23 +648,35 @@
         showCovert = !showCovert;
         document.getElementById('covertLabel').textContent  = showCovert ? 'Ocultar encubiertos' : 'Mostrar encubiertos';
         document.getElementById('covertIcon').className     = showCovert ? 'fas fa-eye' : 'fas fa-eye-slash';
+
+        const list = document.getElementById('unitsList');
         Object.entries(markers).forEach(([id, m]) => {
-            if (m._unitType === 'covert') {
-                showCovert ? m.addTo(map) : map.removeLayer(m);
+            if (m._unitType !== 'covert') return;
+            if (showCovert) {
+                m.addTo(map);
+                if (!document.getElementById(`card-${id}`) && unitData[id]) {
+                    list.appendChild(buildCard(unitData[id]));
+                }
+            } else {
+                map.removeLayer(m);
+                document.getElementById(`card-${id}`)?.remove();
             }
         });
     });
 
-    // ── Polling cada 10 segundos ──────────────────────────────
-    function refresh() {
-        fetch('/api/geoint/units')
-            .then(r => r.json())
-            .then(renderUnits)
-            .catch(() => {});
+    // ── Fetch periódico (sin wire:poll — JS puro para fluidez con muchas unidades) ──
+    async function fetchUnits() {
+        try {
+            const res   = await fetch('/api/geoint/units');
+            const units = await res.json();
+            updateMap(units);
+        } catch (e) {
+            console.error('GPS fetch error:', e);
+        }
     }
 
-    refresh();
-    setInterval(refresh, 10000);
+    fetchUnits();
+    setInterval(fetchUnits, REFRESH_INTERVAL);
 
 })();
 </script>

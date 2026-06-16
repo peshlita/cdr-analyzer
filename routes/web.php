@@ -11,7 +11,9 @@ use App\Http\Controllers\ReportController;
 use App\Http\Controllers\AnalysisController;
 use App\Http\Controllers\ModuleController;
 use App\Http\Controllers\GeointController;
+use App\Http\Controllers\TenantController;
 use App\Livewire\Geoint\GeointUnits;
+use App\Livewire\Geoint\GeointVehicles;
 use App\Livewire\Geoint\GeointGeofences;
 use App\Livewire\Geoint\GeointAlerts;
 use App\Http\Controllers\Auth\TwoFactorController;
@@ -65,16 +67,20 @@ Route::middleware(['auth', 'active.user'])->group(function () {
     // ── GEOINT ────────────────────────────────────
     Route::middleware('module:geoint')->prefix('geoint')->name('geoint.')->group(function () {
         Route::get('/',          [GeointController::class, 'index'])->name('map');
+        Route::get('/vehicles',  GeointVehicles::class)->name('vehicles');
         Route::get('/units',     GeointUnits::class)->name('units');
         Route::get('/geofences', GeointGeofences::class)->name('geofences');
         Route::get('/alerts',    GeointAlerts::class)->name('alerts');
-        Route::get('/report',    [GeointController::class, 'report'])->name('report');
+        Route::get('/report',        [GeointController::class, 'report'])->name('report');
+        Route::get('/report/export', [GeointController::class, 'exportPdf'])->name('report.export');
+        Route::post('/report/snapshot', [GeointController::class, 'saveSnapshot'])->name('report.snapshot');
     });
 
     // ── APIs GEOINT ───────────────────────────────
     Route::middleware('module:geoint')->prefix('api/geoint')->group(function () {
         Route::get('/units',              [GeointController::class, 'apiUnits'])->name('api.geoint.units');
         Route::get('/unit/{id}/history',  [GeointController::class, 'apiUnitHistory'])->name('api.geoint.history');
+        Route::get('/vehicle/{id}/points',[GeointController::class, 'apiVehiclePoints'])->name('api.geoint.vehicle.points');
         Route::get('/geofences',          [GeointController::class, 'apiGeofences'])->name('api.geoint.geofences');
     });
 
@@ -89,6 +95,8 @@ Route::middleware(['auth', 'active.user'])->group(function () {
 
         Route::get('/users', [UserController::class, 'index'])->name('users.index');
         Route::post('/users', [UserController::class, 'store'])->name('users.store');
+        Route::put('/users/{user}', [UserController::class, 'update'])->name('users.update');
+        Route::delete('/users/{user}', [UserController::class, 'destroy'])->name('users.destroy');
         Route::patch('/users/{user}/toggle', [UserController::class, 'toggleActive'])->name('users.toggle');
         Route::patch('/users/{user}/reset-password', [UserController::class, 'resetPassword'])->name('users.reset-password');
 
@@ -97,9 +105,19 @@ Route::middleware(['auth', 'active.user'])->group(function () {
 
         Route::get('/audit', [AuditController::class, 'index'])->name('audit.index');
         Route::get('/audit/export', [AuditController::class, 'exportPdf'])->name('audit.export');
+    });
 
+    // ── CONFIG GLOBAL + INSTITUCIONES (solo super admin GLOBAL, sin tenant) ──
+    // La configuración general (institution_name, force_2fa, session_lifetime) es
+    // global; un admin de institución no debe modificarla.
+    Route::middleware('super_admin_global')->prefix('admin')->name('admin.')->group(function () {
         Route::get('/settings', [SettingController::class, 'index'])->name('settings.index');
         Route::put('/settings', [SettingController::class, 'update'])->name('settings.update');
+
+        Route::get('/tenants',                 [TenantController::class, 'index'])->name('tenants.index');
+        Route::post('/tenants',                [TenantController::class, 'store'])->name('tenants.store');
+        Route::put('/tenants/{tenant}',        [TenantController::class, 'update'])->name('tenants.update');
+        Route::patch('/tenants/{tenant}/toggle',[TenantController::class, 'toggle'])->name('tenants.toggle');
     });
 
 });

@@ -7,11 +7,7 @@
 @section('content')
 <div class="max-w-3xl space-y-6">
 
-    @if(session('success'))
-        <div class="px-4 py-3 rounded-lg text-sm text-green-300 flex items-center gap-2" style="background-color:#052e16; border:1px solid #14532d;">
-            <i class="fas fa-check-circle"></i> {{ session('success') }}
-        </div>
-    @endif
+    {{-- Los mensajes flash los muestra el layout una sola vez. --}}
 
     <!-- Usuario info -->
     <div class="flex items-center gap-4 px-4 py-3 rounded-xl" style="background-color:#1e293b; border:1px solid #334155;">
@@ -52,14 +48,14 @@
                         <input type="checkbox" name="modules[]" value="{{ $slug }}"
                             {{ $enabled ? 'checked' : '' }}
                             class="sr-only peer"
-                            onchange="this.closest('.transition-all').style.borderColor=this.checked?'#3b82f6':'#334155'">
-                        <div class="w-11 h-6 rounded-full peer peer-checked:after:translate-x-full after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all"
-                            style="background-color:#334155;" id="toggle-{{ $slug }}"
-                            onclick="this.previousElementSibling.click()">
-                        </div>
-                        <style>
-                            input[name="modules[]"][value="{{ $slug}"]:checked + div { background-color: #3b82f6 !important; }
-                        </style>
+                            onchange="
+                                const card = this.closest('.transition-all');
+                                card.style.borderColor = this.checked ? '#3b82f6' : '#334155';
+                                card.classList.toggle('opacity-60', !this.checked);">
+                        <div class="w-11 h-6 rounded-full bg-slate-600 peer-checked:bg-blue-500 transition-colors
+                                    after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white
+                                    after:rounded-full after:h-5 after:w-5 after:transition-all
+                                    peer-checked:after:translate-x-full"></div>
                     </label>
                 </div>
                 @endforeach

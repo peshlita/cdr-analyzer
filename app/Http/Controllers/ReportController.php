@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\CdrBatch;
 use App\Models\CdrRecord;
 use App\Models\PhoneContact;
+use App\Services\CdrFrequencyAnalyzer;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\DB;
 
@@ -27,7 +29,7 @@ class ReportController extends Controller
 
         // Top contactos: todos los números de voz que aparecen como number_b,
         // usando el mismo criterio del módulo de red (ambas columnas, sin duplicar el objetivo).
-        $targetNumbers = \DB::table('cdr_records')
+        $targetNumbers = \App\Models\CdrRecord::query()
             ->selectRaw('source_file, number_a, COUNT(*) as cnt')
             ->whereNotNull('number_a')->whereNotNull('source_file')
             ->groupBy('source_file', 'number_a')
@@ -91,23 +93,48 @@ class ReportController extends Controller
             ->limit(30)
             ->get();
 
+        // Snapshots por usuario (cada quien tiene su carpeta).
+        $snapDir = 'snapshots/' . auth()->id();
+
         // Network graph snapshot
-        $networkSnapshot = \Storage::disk('public')->exists('snapshots/network.png')
-            ? asset('storage/snapshots/network.png')
+        $networkSnapshot = \Storage::disk('public')->exists("{$snapDir}/network.png")
+            ? asset("storage/{$snapDir}/network.png")
             : null;
         $networkSnapshotPath = null;
-        if (\Storage::disk('public')->exists('snapshots/network.png')) {
-            $raw = \Storage::disk('public')->get('snapshots/network.png');
+        if (\Storage::disk('public')->exists("{$snapDir}/network.png")) {
+            $raw = \Storage::disk('public')->get("{$snapDir}/network.png");
             $networkSnapshotPath = 'data:image/png;base64,' . base64_encode($raw);
         }
 
         // Map snapshots (3 types)
         $mapSnapshots = [];
         foreach (['map_data', 'map_voice', 'map_pernocta'] as $type) {
-            if (\Storage::disk('public')->exists("snapshots/{$type}.png")) {
-                $raw = \Storage::disk('public')->get("snapshots/{$type}.png");
+            if (\Storage::disk('public')->exists("{$snapDir}/{$type}.png")) {
+                $raw = \Storage::disk('public')->get("{$snapDir}/{$type}.png");
                 $mapSnapshots[$type] = 'data:image/png;base64,' . base64_encode($raw);
             }
+        }
+
+        // Análisis de frecuencia y cruces (sábanas del usuario/tenant actual)
+        $freqAnalyzer = new CdrFrequencyAnalyzer();
+        $freqBatches  = CdrBatch::orderBy('created_at', 'desc')->get();
+
+        $freqTopContacts   = [];
+        $freqCrossAnalysis = [];
+
+        if ($freqBatches->count() === 1) {
+            $freqTopContacts = $freqAnalyzer->getTopContacts($freqBatches->first()->batch_id, 10);
+        } elseif ($freqBatches->count() >= 2) {
+            $freqTopContacts = $freqBatches->map(function ($batch) use ($freqAnalyzer) {
+                return [
+                    'batch'    => $batch,
+                    'contacts' => $freqAnalyzer->getTopContacts($batch->batch_id, 10),
+                ];
+            })->toArray();
+
+            $freqCrossAnalysis = $freqAnalyzer->getCrossAnalysisWithPattern(
+                $freqBatches->pluck('batch_id')->toArray()
+            );
         }
 
         return compact(
@@ -115,7 +142,8 @@ class ReportController extends Controller
             'enrichedContacts', 'topVoiceCalls', 'imeiList',
             'pernoctaAntenna', 'nocturnalVoice',
             'networkSnapshot', 'networkSnapshotPath',
-            'mapSnapshots'
+            'mapSnapshots',
+            'freqBatches', 'freqTopContacts', 'freqCrossAnalysis'
         );
     }
 

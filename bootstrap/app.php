@@ -12,10 +12,11 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
-            'module'      => \App\Http\Middleware\CheckModuleAccess::class,
-            'active.user' => \App\Http\Middleware\EnsureUserIsActive::class,
-            'super.admin' => \App\Http\Middleware\EnsureSuperAdmin::class,
-            '2fa'         => \App\Http\Middleware\TwoFactorAuth::class,
+            'module'              => \App\Http\Middleware\CheckModuleAccess::class,
+            'active.user'         => \App\Http\Middleware\EnsureUserIsActive::class,
+            'super.admin'         => \App\Http\Middleware\EnsureSuperAdmin::class,
+            'super_admin_global'  => \App\Http\Middleware\SuperAdminGlobal::class,
+            '2fa'                 => \App\Http\Middleware\TwoFactorAuth::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

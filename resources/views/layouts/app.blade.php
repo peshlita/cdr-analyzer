@@ -72,8 +72,8 @@
                 $hasComint = !$user || $user->hasModuleAccess('comint');
 
                 $comintSubItems = [
-                    ['url' => '/comint/dashboard', 'icon' => 'fas fa-chart-pie',        'label' => 'Dashboard COMINT', 'match' => 'comint/dashboard'],
                     ['url' => '/upload',            'icon' => 'fas fa-file-csv',          'label' => 'Importar CSV',      'match' => 'upload*'],
+                    ['url' => '/comint/dashboard', 'icon' => 'fas fa-chart-pie',        'label' => 'Dashboard COMINT', 'match' => 'comint/dashboard'],
                     ['url' => '/network',           'icon' => 'fas fa-project-diagram',   'label' => 'Red de Llamadas',   'match' => 'network*'],
                     ['url' => '/analysis',          'icon' => 'fas fa-microscope',        'label' => 'Análisis',          'match' => 'analysis*'],
                     ['url' => '/map',               'icon' => 'fas fa-map-marked-alt',    'label' => 'Mapa GPS',          'match' => 'map*'],
@@ -87,7 +87,7 @@
 
                 $geointSubItems = [
                     ['url' => '/geoint',            'icon' => 'fas fa-map-marked-alt',  'label' => 'Mapa en Vivo',  'match' => 'geoint',           'badge' => 0],
-                    ['url' => '/geoint/units',      'icon' => 'fas fa-car',             'label' => 'Unidades',      'match' => 'geoint/units*',    'badge' => 0],
+                    ['url' => '/geoint/vehicles',   'icon' => 'fas fa-car',             'label' => 'Vehículos',     'match' => 'geoint/vehicles*', 'badge' => 0],
                     ['url' => '/geoint/geofences',  'icon' => 'fas fa-draw-polygon',    'label' => 'Geocercas',     'match' => 'geoint/geofences*','badge' => 0],
                     ['url' => '/geoint/alerts',     'icon' => 'fas fa-bell',            'label' => 'Alertas',       'match' => 'geoint/alerts*',   'badge' => $geointAlerts],
                     ['url' => '/geoint/report',     'icon' => 'fas fa-file-pdf',        'label' => 'Reporte',       'match' => 'geoint/report*',   'badge' => 0],
@@ -254,7 +254,6 @@
                         ['url' => '/admin',          'icon' => 'fas fa-shield-alt',     'label' => 'Panel Admin'],
                         ['url' => '/admin/users',    'icon' => 'fas fa-users',          'label' => 'Usuarios'],
                         ['url' => '/admin/audit',    'icon' => 'fas fa-clipboard-list', 'label' => 'Auditoría'],
-                        ['url' => '/admin/settings', 'icon' => 'fas fa-cog',            'label' => 'Configuración'],
                     ];
                 @endphp
 
@@ -271,6 +270,26 @@
                         <span>{{ $item['label'] }}</span>
                     </a>
                 @endforeach
+
+                {{-- Configuración global + Instituciones: solo para el Super Admin GLOBAL --}}
+                @if($user->isGlobalAdmin())
+                    @php $settingsActive = request()->is('admin/settings') || request()->is('admin/settings/*'); @endphp
+                    <a href="/admin/settings"
+                       class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150
+                              {{ $settingsActive ? 'text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700' }}"
+                       @if($settingsActive) style="background-color:#7f1d1d;" @endif>
+                        <i class="fas fa-cog w-4 text-center text-xs"></i>
+                        <span>Configuración</span>
+                    </a>
+                    @php $tenantsActive = request()->is('admin/tenants') || request()->is('admin/tenants/*'); @endphp
+                    <a href="/admin/tenants"
+                       class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150
+                              {{ $tenantsActive ? 'text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700' }}"
+                       @if($tenantsActive) style="background-color:#7f1d1d;" @endif>
+                        <i class="fas fa-building w-4 text-center text-xs"></i>
+                        <span>Instituciones</span>
+                    </a>
+                @endif
             </div>
             @endif
 
@@ -328,15 +347,21 @@
             </div>
         </header>
 
-        <!-- Flash messages -->
+        <!-- Flash messages (se auto-ocultan a los 4.5s) -->
         @if(session('success'))
-        <div class="mx-6 mt-4 px-4 py-3 rounded-lg text-sm text-green-300 flex items-center gap-2" style="background-color:#052e16; border:1px solid #14532d;">
-            <i class="fas fa-check-circle"></i> {{ session('success') }}
+        <div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 4500)"
+             x-transition:leave="transition ease-in duration-500" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+             class="mx-6 mt-4 px-4 py-3 rounded-lg text-sm text-green-300 flex items-center justify-between gap-2" style="background-color:#052e16; border:1px solid #14532d;">
+            <span><i class="fas fa-check-circle mr-1"></i> {{ session('success') }}</span>
+            <button type="button" @click="show = false" class="text-green-400 hover:text-white">&times;</button>
         </div>
         @endif
         @if(session('error'))
-        <div class="mx-6 mt-4 px-4 py-3 rounded-lg text-sm text-red-300 flex items-center gap-2" style="background-color:#450a0a; border:1px solid #7f1d1d;">
-            <i class="fas fa-exclamation-circle"></i> {{ session('error') }}
+        <div x-data="{ show: true }" x-show="show" x-init="setTimeout(() => show = false, 6000)"
+             x-transition:leave="transition ease-in duration-500" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+             class="mx-6 mt-4 px-4 py-3 rounded-lg text-sm text-red-300 flex items-center justify-between gap-2" style="background-color:#450a0a; border:1px solid #7f1d1d;">
+            <span><i class="fas fa-exclamation-circle mr-1"></i> {{ session('error') }}</span>
+            <button type="button" @click="show = false" class="text-red-400 hover:text-white">&times;</button>
         </div>
         @endif
 

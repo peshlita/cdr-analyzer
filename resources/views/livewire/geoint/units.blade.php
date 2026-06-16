@@ -72,6 +72,7 @@
                 <label class="text-xs text-slate-400 block mb-2">Ícono en mapa</label>
                 @php
                 $icons = [
+                    'fa-shield-halved'  => 'Patrulla Policial',
                     'fa-car'            => 'Automóvil',
                     'fa-truck'          => 'Camioneta',
                     'fa-motorcycle'     => 'Motocicleta',

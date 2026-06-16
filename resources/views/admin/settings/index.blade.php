@@ -7,11 +7,7 @@
 @section('content')
 <div class="max-w-2xl space-y-6">
 
-    @if(session('success'))
-        <div class="px-4 py-3 rounded-lg text-sm text-green-300 flex items-center gap-2" style="background-color:#052e16; border:1px solid #14532d;">
-            <i class="fas fa-check-circle"></i> {{ session('success') }}
-        </div>
-    @endif
+    {{-- Los mensajes flash los muestra el layout una sola vez. --}}
 
     <div class="rounded-xl p-6" style="background-color:#1e293b; border:1px solid #334155;">
         <h2 class="text-white font-semibold mb-5 flex items-center gap-2">

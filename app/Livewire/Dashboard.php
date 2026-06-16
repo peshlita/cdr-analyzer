@@ -49,7 +49,7 @@ class Dashboard extends Component
         ];
 
         // Números objetivo (el number_a más frecuente por sábana)
-        $targetNumbers = DB::table('cdr_records')
+        $targetNumbers = \App\Models\CdrRecord::query()
             ->selectRaw('source_file, number_a, COUNT(*) as cnt')
             ->whereNotNull('number_a')->whereNotNull('source_file')
             ->groupBy('source_file', 'number_a')
@@ -58,18 +58,19 @@ class Dashboard extends Component
             ->values()->unique()->filter()->toArray();
 
         // Top 10 numbers (both columns, excluding targets)
+        $own = \App\Models\CdrRecord::ownershipSql('cdr_records');
         $topRows = collect(DB::select("
             SELECT phone, SUM(cnt) AS cnt
             FROM (
                 SELECT number_a AS phone, COUNT(*) AS cnt
-                  FROM cdr_records WHERE number_a IS NOT NULL AND number_b IS NOT NULL GROUP BY number_a
+                  FROM cdr_records WHERE number_a IS NOT NULL AND number_b IS NOT NULL {$own['sql']} GROUP BY number_a
                 UNION ALL
                 SELECT number_b AS phone, COUNT(*) AS cnt
-                  FROM cdr_records WHERE number_a IS NOT NULL AND number_b IS NOT NULL GROUP BY number_b
+                  FROM cdr_records WHERE number_a IS NOT NULL AND number_b IS NOT NULL {$own['sql']} GROUP BY number_b
             ) t
             GROUP BY phone
             ORDER BY cnt DESC
-        "));
+        ", array_merge($own['bindings'], $own['bindings'])));
 
         if (!empty($targetNumbers)) {
             $topRows = $topRows->filter(fn($r) => !in_array($r->phone, $targetNumbers));

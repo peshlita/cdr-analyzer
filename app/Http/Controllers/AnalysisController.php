@@ -18,7 +18,7 @@ class AnalysisController extends Controller
         }
 
         // Números objetivo: el number_a más frecuente por sábana cargada
-        $targetNumbers = \DB::table('cdr_records')
+        $targetNumbers = \App\Models\CdrRecord::query()
             ->selectRaw('source_file, number_a, COUNT(*) as cnt')
             ->whereNotNull('number_a')->whereNotNull('source_file')
             ->groupBy('source_file', 'number_a')

@@ -20,6 +20,8 @@ class PermissionController extends Controller
 
     public function show(User $user)
     {
+        abort_unless($user->isManageableBy(auth()->user()), 403);
+
         $permissions = $user->modulePermissions->keyBy('module_slug');
         $modules = self::MODULES;
         return view('admin.users.permissions', compact('user', 'permissions', 'modules'));
@@ -27,6 +29,8 @@ class PermissionController extends Controller
 
     public function update(Request $request, User $user)
     {
+        abort_unless($user->isManageableBy(auth()->user()), 403);
+
         $enabled = $request->input('modules', []);
 
         foreach (array_keys(self::MODULES) as $slug) {

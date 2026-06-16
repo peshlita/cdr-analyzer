@@ -134,6 +134,95 @@
     </div>
 </div>
 
+<!-- Análisis de Frecuencia y Cruces -->
+@if($freqBatches->count() > 0)
+<div class="section no-break">
+    <div class="section-title">Análisis de Frecuencia de Contactos</div>
+
+    @if($freqBatches->count() === 1)
+    <table>
+        <thead>
+            <tr>
+                <th>#</th><th>Número</th><th>Total</th><th>Entrantes</th><th>Salientes</th><th>Duración</th><th>Periodo</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach($freqTopContacts as $i => $c)
+            <tr>
+                <td>{{ $i+1 }}</td>
+                <td class="mono">{{ $c['number'] }}</td>
+                <td style="text-align:center; font-weight:bold; color:#3b82f6;">{{ $c['total_events'] }}</td>
+                <td style="text-align:center">{{ $c['incoming'] }}</td>
+                <td style="text-align:center">{{ $c['outgoing'] }}</td>
+                <td style="text-align:center">{{ gmdate('H:i:s', $c['total_duration']) }}</td>
+                <td style="text-align:center">{{ $c['days_active'] }} días</td>
+            </tr>
+            @endforeach
+        </tbody>
+    </table>
+    @else
+    @foreach($freqTopContacts as $batchData)
+    <p style="font-weight:bold; color:#1e40af; margin-bottom:6px;">
+        {{ $batchData['batch']->phone_main ?? $batchData['batch']->name }}
+        <span style="font-size:7pt; color:#64748b; font-weight:normal;">
+            ({{ number_format($batchData['batch']->total_records) }} registros)
+        </span>
+    </p>
+    <table>
+        <thead>
+            <tr>
+                <th>#</th><th>Número</th><th>Total</th><th>Entrantes</th><th>Salientes</th><th>Duración</th><th>Periodo</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach($batchData['contacts'] as $i => $c)
+            <tr>
+                <td>{{ $i+1 }}</td>
+                <td class="mono">{{ $c['number'] }}</td>
+                <td style="text-align:center; font-weight:bold; color:#3b82f6;">{{ $c['total_events'] }}</td>
+                <td style="text-align:center">{{ $c['incoming'] }}</td>
+                <td style="text-align:center">{{ $c['outgoing'] }}</td>
+                <td style="text-align:center">{{ gmdate('H:i:s', $c['total_duration']) }}</td>
+                <td style="text-align:center">{{ $c['days_active'] }} días</td>
+            </tr>
+            @endforeach
+        </tbody>
+    </table>
+    @endforeach
+    @endif
+</div>
+
+@if(count($freqCrossAnalysis) > 0)
+<div class="section" style="page-break-inside:avoid;">
+    <div class="section-title">Cruces Detectados Entre Sábanas</div>
+
+    @foreach($freqCrossAnalysis as $cross)
+    <div style="border:1px solid #e2e8f0;border-radius:6px;padding:10px;margin-bottom:10px;
+                {{ $cross['relevance_score'] >= 130 ? 'border-left:4px solid #ef4444;' : ($cross['relevance_score'] >= 80 ? 'border-left:4px solid #f59e0b;' : 'border-left:4px solid #94a3b8;') }}">
+        <div style="font-weight:bold;font-family:'DejaVu Sans Mono',monospace;margin-bottom:4px;">
+            {{ $cross['contact_number'] }}
+            <span style="background:{{ $cross['relevance_score'] >= 130 ? '#fef2f2' : ($cross['relevance_score'] >= 80 ? '#fffbeb' : '#f1f5f9') }};
+                  color:{{ $cross['relevance_score'] >= 130 ? '#dc2626' : ($cross['relevance_score'] >= 80 ? '#d97706' : '#475569') }};
+                  padding:2px 8px;border-radius:10px;font-size:7pt;float:right;">
+                {{ $cross['relevance_score'] >= 130 ? 'Alta relevancia' : ($cross['relevance_score'] >= 80 ? 'Media relevancia' : 'Baja relevancia') }}
+            </span>
+        </div>
+        <div style="font-size:8pt;color:#64748b;">
+            Con {{ $cross['main_a'] }}: {{ $cross['events_with_a'] }} eventos
+            | Con {{ $cross['main_b'] }}: {{ $cross['events_with_b'] }} eventos
+        </div>
+        @if($cross['closest_pair_hours'] !== null)
+        <div style="font-size:8pt;color:#92400e;margin-top:4px;">
+            ⚠ Comunicación más cercana en el tiempo: {{ $cross['closest_pair_hours'] }} horas de diferencia
+            ({{ $cross['closest_pair_dates']['date_a'] }} ↔ {{ $cross['closest_pair_dates']['date_b'] }})
+        </div>
+        @endif
+    </div>
+    @endforeach
+</div>
+@endif
+@endif
+
 <!-- 2. Identified contacts -->
 @if($enrichedContacts->count() > 0)
 <div class="section no-break">

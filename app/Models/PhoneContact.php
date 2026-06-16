@@ -2,11 +2,15 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToTenant;
 use Illuminate\Database\Eloquent\Model;
 
 class PhoneContact extends Model
 {
+    use BelongsToTenant;
+
     protected $fillable = [
+        'tenant_id', 'user_id',
         'phone_number', 'name', 'alias', 'notes', 'image_path',
     ];
 

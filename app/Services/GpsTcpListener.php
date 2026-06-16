@@ -123,17 +123,15 @@ class GpsTcpListener
         string $rawData,
         callable $log
     ): void {
-        $unit = GpsUnit::where('imei', $imei)->first();
+        // El listener corre sin usuario autenticado; withoutGlobalScope deja
+        // explícito que la búsqueda es global (entre todas las instituciones).
+        $unit = GpsUnit::withoutGlobalScope('tenant')->where('imei', $imei)->first();
 
         if (!$unit) {
-            $suffix = substr($imei, -4);
-            $unit   = GpsUnit::create([
-                'name'      => "Unidad {$suffix}",
-                'imei'      => $imei,
-                'unit_type' => 'patrol',
-                'is_active' => true,
-            ]);
-            $log("Nueva unidad creada automáticamente: {$unit->name} ({$imei})");
+            // Multi-tenant: no se autocrean unidades (quedarían sin institución).
+            // El IMEI debe registrarse previamente por el admin de su tenant.
+            $log("IMEI no registrado — trama rechazada: {$imei}");
+            return;
         }
 
         if (!$unit->is_active) {
@@ -141,9 +139,11 @@ class GpsTcpListener
             return;
         }
 
-        // Guardar posición
+        // Guardar posición heredando tenant_id Y user_id (propietario) de la unidad
         $position = GpsPosition::create([
             'gps_unit_id' => $unit->id,
+            'tenant_id'   => $unit->tenant_id,
+            'user_id'     => $unit->user_id,
             'lat'         => $lat,
             'lon'         => $lon,
             'speed'       => $speed,
@@ -169,13 +169,18 @@ class GpsTcpListener
 
     private function checkGeofences(GpsUnit $unit, GpsPosition $position, callable $log): void
     {
-        $geofences = Geofence::where('is_active', true)->get();
+        // Solo geocercas del MISMO propietario que la unidad (aislamiento por usuario).
+        $geofences = Geofence::withoutGlobalScope('tenant')
+            ->where('user_id', $unit->user_id)
+            ->where('is_active', true)
+            ->get();
 
         foreach ($geofences as $fence) {
             $inside = $fence->containsPoint($position->lat, $position->lon);
 
             // Buscar último estado del vehículo en esta geocerca
-            $lastAlert = GeofenceAlert::where('gps_unit_id', $unit->id)
+            $lastAlert = GeofenceAlert::withoutGlobalScope('tenant')
+                ->where('gps_unit_id', $unit->id)
                 ->where('geofence_id', $fence->id)
                 ->latest('triggered_at')
                 ->first();
@@ -186,6 +191,8 @@ class GpsTcpListener
                 GeofenceAlert::create([
                     'geofence_id'  => $fence->id,
                     'gps_unit_id'  => $unit->id,
+                    'tenant_id'    => $unit->tenant_id,
+                    'user_id'      => $unit->user_id,
                     'alert_type'   => 'enter',
                     'lat'          => $position->lat,
                     'lon'          => $position->lon,
@@ -198,6 +205,8 @@ class GpsTcpListener
                 GeofenceAlert::create([
                     'geofence_id'  => $fence->id,
                     'gps_unit_id'  => $unit->id,
+                    'tenant_id'    => $unit->tenant_id,
+                    'user_id'      => $unit->user_id,
                     'alert_type'   => 'exit',
                     'lat'          => $position->lat,
                     'lon'          => $position->lon,

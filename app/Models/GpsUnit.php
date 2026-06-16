@@ -2,12 +2,16 @@
 
 namespace App\Models;
 
+use App\Traits\BelongsToTenant;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Builder;
 
 class GpsUnit extends Model
 {
+    use BelongsToTenant;
+
     protected $fillable = [
+        'tenant_id',
         'name', 'imei', 'plate', 'unit_type', 'sim_number',
         'color', 'icon', 'is_active',
         'last_seen_at', 'last_lat', 'last_lon', 'last_speed', 'notes',
@@ -26,6 +30,11 @@ class GpsUnit extends Model
     public function positions()
     {
         return $this->hasMany(GpsPosition::class);
+    }
+
+    public function latestPosition()
+    {
+        return $this->hasOne(GpsPosition::class)->latestOfMany('received_at');
     }
 
     public function geofences()

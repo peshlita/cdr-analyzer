@@ -23,8 +23,10 @@ class NetworkController extends Controller
 
         $png = base64_decode(str_replace('data:image/png;base64,', '', $dataUri));
 
-        \Storage::disk('public')->makeDirectory('snapshots');
-        \Storage::disk('public')->put('snapshots/network.png', $png);
+        // Snapshot por usuario.
+        $dir = 'snapshots/' . auth()->id();
+        \Storage::disk('public')->makeDirectory($dir);
+        \Storage::disk('public')->put("{$dir}/network.png", $png);
 
         return response()->json(['success' => true]);
     }
@@ -32,7 +34,7 @@ class NetworkController extends Controller
     public function data(Request $request)
     {
         // ── Números objetivo: uno por sábana cargada (número_a más frecuente) ─
-        $targetNumbers = \DB::table('cdr_records')
+        $targetNumbers = \App\Models\CdrRecord::query()
             ->selectRaw('source_file, number_a, COUNT(*) as cnt')
             ->whereNotNull('number_a')
             ->whereNotNull('source_file')
@@ -76,6 +78,9 @@ class NetworkController extends Controller
             $dateBindings[] = $request->date_to;
         }
 
+        // Aislamiento por usuario para SQL crudo (no aplica el global scope).
+        $own = \App\Models\CdrRecord::ownershipSql('cdr_records');
+
         // Los bindings se repiten para las dos mitades del UNION ALL
         $numFreqs = collect(\DB::select("
             SELECT phone, SUM(cnt) AS cnt
@@ -85,7 +90,7 @@ class NetworkController extends Controller
                  WHERE type = 'voice'
                    AND number_a IS NOT NULL
                    AND number_b IS NOT NULL
-                   {$dateWhere}
+                   {$dateWhere}{$own['sql']}
                  GROUP BY number_a
 
                 UNION ALL
@@ -95,12 +100,12 @@ class NetworkController extends Controller
                  WHERE type = 'voice'
                    AND number_a IS NOT NULL
                    AND number_b IS NOT NULL
-                   {$dateWhere}
+                   {$dateWhere}{$own['sql']}
                  GROUP BY number_b
             ) t
             GROUP BY phone
             ORDER BY cnt DESC
-        ", array_merge($dateBindings, $dateBindings)));
+        ", array_merge($dateBindings, $own['bindings'], $dateBindings, $own['bindings'])));
 
         $nlPhones   = $numFreqs->pluck('phone');
         $nlContacts = PhoneContact::whereIn('phone_number', $nlPhones)->get()->keyBy('phone_number');
@@ -108,12 +113,12 @@ class NetworkController extends Controller
         // Teléfonos que aparecen en más de una sábana (cruce entre sábanas)
         $crossPhones = collect(\DB::select("
             SELECT phone FROM (
-                SELECT number_a AS phone, source_file FROM cdr_records WHERE number_a IS NOT NULL AND source_file IS NOT NULL
+                SELECT number_a AS phone, source_file FROM cdr_records WHERE number_a IS NOT NULL AND source_file IS NOT NULL {$own['sql']}
                 UNION
-                SELECT number_b AS phone, source_file FROM cdr_records WHERE number_b IS NOT NULL AND source_file IS NOT NULL
+                SELECT number_b AS phone, source_file FROM cdr_records WHERE number_b IS NOT NULL AND source_file IS NOT NULL {$own['sql']}
             ) t
             GROUP BY phone HAVING COUNT(DISTINCT source_file) > 1
-        "))->pluck('phone')->flip();
+        ", array_merge($own['bindings'], $own['bindings'])))->pluck('phone')->flip();
 
         $numberList = $numFreqs->map(fn($r) => [
             'phone'    => $r->phone,
@@ -218,11 +223,11 @@ class NetworkController extends Controller
         $contacts = PhoneContact::whereIn('phone_number', $allNumbers)->get()->keyBy('phone_number');
 
         // ── Cross-reference: which source files each number appears in ─────────
-        $sourcesMap = \DB::table('cdr_records')
+        $sourcesMap = \App\Models\CdrRecord::query()
             ->select('number_a as phone', 'source_file')
             ->whereNotNull('source_file')->whereNotNull('number_a')
             ->union(
-                \DB::table('cdr_records')
+                \App\Models\CdrRecord::query()
                     ->select('number_b as phone', 'source_file')
                     ->whereNotNull('number_b')->whereNotNull('source_file')
             )

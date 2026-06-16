@@ -28,7 +28,9 @@ class AuditController extends Controller
         }
 
         $logs  = $query->paginate(50)->withQueryString();
-        $users = User::orderBy('name')->get();
+        // Los logs ya se aíslan por el global scope del modelo AuditLog;
+        // el dropdown de usuarios se limita a los visibles para el admin.
+        $users = User::visibleTo(auth()->user())->orderBy('name')->get();
 
         return view('admin.audit.index', compact('logs', 'users'));
     }
